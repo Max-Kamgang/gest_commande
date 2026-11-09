@@ -121,13 +121,19 @@ public static class ServiceDefaults
     /// </summary>
     public static WebApplication UseServiceDefaults(this WebApplication app, string serviceName)
     {
+        // 1. Correlation-ID : tout le reste du pipeline en dispose, logs compris.
         app.UseMiddleware<CorrelationIdMiddleware>();
+
+        // 2. Journalisation des requetes AVANT le gestionnaire d'exceptions : ainsi
+        //    une erreur metier traduite en 404 ou 409 est journalisee avec son vrai
+        //    code HTTP, et non comme un 500 (l'exception etant deja traitee en aval).
+        app.UseRequestLogging();
+
+        // 3. Traduction des exceptions en ProblemDetails (RFC 9457).
         app.UseExceptionHandler();
 
-        // Transforme les codes d'erreur sans corps (404 de routage, 405...) en ProblemDetails.
+        // 4. Codes d'erreur sans corps (404 de routage, 405...) -> ProblemDetails.
         app.UseStatusCodePages();
-
-        app.UseRequestLogging();
 
         app.UseSwaggerWithJwt(serviceName);
 

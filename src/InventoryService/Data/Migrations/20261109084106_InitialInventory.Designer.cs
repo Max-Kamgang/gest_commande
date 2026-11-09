@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GestionCommandes.InventoryService.Data.Migrations
 {
     [DbContext(typeof(InventoryDbContext))]
-    [Migration("20261109081730_InitialInventory")]
+    [Migration("20261109084106_InitialInventory")]
     partial class InitialInventory
     {
         /// <inheritdoc />
@@ -33,6 +33,10 @@ namespace GestionCommandes.InventoryService.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<Guid>("ProductId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProductLabel")
+                        .HasMaxLength(180)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("QuantityOnHand")

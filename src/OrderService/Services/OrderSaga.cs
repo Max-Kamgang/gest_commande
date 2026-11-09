@@ -107,7 +107,12 @@ public sealed class OrderSaga(
                 {
                     Reference = order.Number,
                     Lines = order.Lines
-                        .Select(l => new ReservationLineDto { ProductId = l.ProductId, Quantity = l.Quantity })
+                        .Select(l => new ReservationLineDto
+                        {
+                            ProductId = l.ProductId,
+                            Quantity = l.Quantity,
+                            ProductLabel = l.ProductName
+                        })
                         .ToList()
                 },
                 cancellationToken);

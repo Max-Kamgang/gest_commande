@@ -117,6 +117,9 @@ public sealed class StockManager(
                 ProductId = request.ProductId,
                 WarehouseId = warehouse.Id,
                 Warehouse = warehouse,
+                ProductLabel = string.IsNullOrWhiteSpace(request.ProductLabel)
+                    ? null
+                    : request.ProductLabel.Trim(),
                 QuantityOnHand = 0,
                 QuantityReserved = 0,
                 LowStockThreshold = request.LowStockThreshold ?? 5
@@ -124,9 +127,18 @@ public sealed class StockManager(
 
             context.StockItems.Add(item);
         }
-        else if (request.LowStockThreshold is { } threshold)
+        else
         {
-            item.LowStockThreshold = threshold;
+            if (request.LowStockThreshold is { } threshold)
+            {
+                item.LowStockThreshold = threshold;
+            }
+
+            // Le libelle le plus recent gagne : le catalogue peut avoir ete renomme.
+            if (!string.IsNullOrWhiteSpace(request.ProductLabel))
+            {
+                item.ProductLabel = request.ProductLabel.Trim();
+            }
         }
 
         item.QuantityOnHand += request.Quantity;
@@ -340,6 +352,7 @@ public sealed class StockManager(
     {
         Id = item.Id,
         ProductId = item.ProductId,
+        ProductLabel = item.ProductLabel,
         WarehouseId = item.WarehouseId,
         WarehouseCode = item.Warehouse?.Code ?? string.Empty,
         WarehouseName = item.Warehouse?.Name ?? string.Empty,

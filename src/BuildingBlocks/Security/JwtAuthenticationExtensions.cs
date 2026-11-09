@@ -1,8 +1,7 @@
 using System.Text;
-using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -63,26 +62,9 @@ public static class JwtAuthenticationExtensions
                     RoleClaimType = "role"
                 };
 
-                // 401 / 403 au format problem+json plutot qu'un corps vide.
-                bearer.Events = new JwtBearerEvents
-                {
-                    OnChallenge = async context =>
-                    {
-                        context.HandleResponse();
-                        await WriteProblemAsync(
-                            context.HttpContext,
-                            StatusCodes.Status401Unauthorized,
-                            "Non authentifie",
-                            "Un jeton JWT valide est requis. Appelez POST /api/auth/login.",
-                            "UNAUTHENTICATED");
-                    },
-                    OnForbidden = async context => await WriteProblemAsync(
-                        context.HttpContext,
-                        StatusCodes.Status403Forbidden,
-                        "Acces refuse",
-                        "Votre role ne permet pas d'acceder a cette ressource.",
-                        "FORBIDDEN")
-                };
+                // Les reponses 401 / 403 sont produites une seule fois, au niveau
+                // de l'intergiciel d'autorisation : voir
+                // ProblemDetailsAuthorizationResultHandler.
             })
             .AddScheme<InternalKeyOptions, InternalKeyAuthenticationHandler>(
                 InternalKeyDefaults.Scheme,
@@ -102,9 +84,13 @@ public static class JwtAuthenticationExtensions
             .AddPolicy(AuthPolicies.AdminOnly, policy => policy
                 .AddAuthenticationSchemes(schemes)
                 .RequireRole(Roles.Admin))
+            // Le role technique Service est inclus : order-service cree les bordereaux
+            // de livraison. Les attributs [Authorize] se cumulent (ET logique), donc une
+            // politique posee sur un controleur ne doit pas exclure les appels internes
+            // que ses actions autorisent.
             .AddPolicy(AuthPolicies.Livraisons, policy => policy
                 .AddAuthenticationSchemes(schemes)
-                .RequireRole(Roles.Admin, Roles.Gestionnaire, Roles.Livreur))
+                .RequireRole(Roles.Admin, Roles.Gestionnaire, Roles.Livreur, Roles.Service))
             .AddPolicy(AuthPolicies.BackOfficeOuService, policy => policy
                 .AddAuthenticationSchemes(schemes)
                 .RequireRole(Roles.Admin, Roles.Gestionnaire, Roles.Service))
@@ -112,44 +98,14 @@ public static class JwtAuthenticationExtensions
                 .AddAuthenticationSchemes(schemes)
                 .RequireRole(Roles.Service));
 
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, ProblemDetailsAuthorizationResultHandler>();
+
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUser>();
 
         return services;
     }
 
-    private static async Task WriteProblemAsync(
-        HttpContext context,
-        int status,
-        string title,
-        string detail,
-        string errorCode)
-    {
-        if (context.Response.HasStarted)
-        {
-            return;
-        }
-
-        context.Response.StatusCode = status;
-        context.Response.ContentType = "application/problem+json";
-
-        var correlationId = context.Items.TryGetValue(Correlation.CorrelationConstants.HeaderName, out var raw)
-            ? raw as string
-            : context.TraceIdentifier;
-
-        var payload = new Dictionary<string, object?>
-        {
-            ["type"] = $"https://microservices.micro.local/errors/{errorCode.ToLowerInvariant()}",
-            ["title"] = title,
-            ["status"] = status,
-            ["detail"] = detail,
-            ["instance"] = $"{context.Request.Method} {context.Request.Path}",
-            ["errorCode"] = errorCode,
-            ["correlationId"] = correlationId
-        };
-
-        await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
-    }
 }
 
 /// <summary>Noms des politiques d'autorisation partagees.</summary>

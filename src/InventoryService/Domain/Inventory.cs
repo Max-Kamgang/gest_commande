@@ -48,6 +48,16 @@ public class StockItem
     /// <summary>Produit concerne (identifiant gere par catalog-service).</summary>
     public Guid ProductId { get; set; }
 
+    /// <summary>
+    /// Libelle d'affichage du produit, recopie du catalogue par l'appelant
+    /// (entree de stock ou reservation). inventory-service ne connait pas le
+    /// catalogue : cette denormalisation sert uniquement a rendre les alertes
+    /// lisibles, sans introduire d'appel bloquant vers catalog-service sur le
+    /// chemin critique du stock.
+    /// </summary>
+    [MaxLength(180)]
+    public string? ProductLabel { get; set; }
+
     public Guid WarehouseId { get; set; }
 
     public Warehouse? Warehouse { get; set; }

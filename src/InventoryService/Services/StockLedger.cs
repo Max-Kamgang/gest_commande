@@ -1,4 +1,3 @@
-using GestionCommandes.BuildingBlocks.Domain;
 using GestionCommandes.BuildingBlocks.Events;
 using GestionCommandes.BuildingBlocks.Security;
 using GestionCommandes.InventoryService.Data;
@@ -56,12 +55,16 @@ public sealed class StockLedger(
             return;
         }
 
-        var product = DemoData.FindProduct(item.ProductId);
-        var label = product?.Name ?? item.ProductId.ToString();
+        // Le libelle vient de la denormalisation alimentee par l'appelant ;
+        // a defaut on cite l'identifiant du produit, jamais une table partagee.
+        var label = string.IsNullOrWhiteSpace(item.ProductLabel)
+            ? $"produit {item.ProductId}"
+            : item.ProductLabel;
+
         var warehouse = item.Warehouse?.Name ?? item.WarehouseId.ToString();
 
         logger.LogWarning(
-            "Stock bas : produit {ProductId} ({Label}) dans {Warehouse} - disponible {Available}, seuil {Threshold}",
+            "Stock bas : {ProductId} ({Label}) dans {Warehouse} - disponible {Available}, seuil {Threshold}",
             item.ProductId,
             label,
             warehouse,
@@ -71,10 +74,10 @@ public sealed class StockLedger(
         events.Publish(new IntegrationEvent
         {
             EventType = EventTypes.StockLow,
-            Subject = product?.Sku ?? item.ProductId.ToString(),
+            Subject = item.ProductId.ToString(),
             Title = $"Stock bas : {label}",
             Message =
-                $"Le produit « {label} » n'a plus que {item.QuantityAvailable} unite(s) disponible(s) " +
+                $"Le {label} n'a plus que {item.QuantityAvailable} unite(s) disponible(s) " +
                 $"dans l'entrepot {warehouse} (seuil d'alerte : {item.LowStockThreshold}). " +
                 "Un reapprovisionnement est a prevoir.",
             Severity = item.QuantityAvailable <= 0 ? EventSeverities.Critical : EventSeverities.Warning,
@@ -83,6 +86,7 @@ public sealed class StockLedger(
             Data = new Dictionary<string, string>
             {
                 ["productId"] = item.ProductId.ToString(),
+                ["productLabel"] = item.ProductLabel ?? string.Empty,
                 ["warehouseId"] = item.WarehouseId.ToString(),
                 ["available"] = item.QuantityAvailable.ToString(),
                 ["onHand"] = item.QuantityOnHand.ToString(),

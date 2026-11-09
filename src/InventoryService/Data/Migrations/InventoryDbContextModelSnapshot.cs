@@ -32,6 +32,10 @@ namespace GestionCommandes.InventoryService.Data.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ProductLabel")
+                        .HasMaxLength(180)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("QuantityOnHand")
                         .HasColumnType("INTEGER");
 

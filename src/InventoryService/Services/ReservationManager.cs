@@ -115,7 +115,8 @@ public sealed class ReservationManager(
             {
                 ProductId = g.Key.ProductId,
                 WarehouseId = g.Key.WarehouseId,
-                Quantity = g.Sum(l => l.Quantity)
+                Quantity = g.Sum(l => l.Quantity),
+                ProductLabel = g.Select(l => l.ProductLabel).FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))
             })
             .ToList();
 
@@ -138,6 +139,15 @@ public sealed class ReservationManager(
                 });
 
                 continue;
+            }
+
+            // Rafraichit le libelle d'affichage avec celui transmis par le catalogue.
+            if (!string.IsNullOrWhiteSpace(demand.ProductLabel))
+            {
+                foreach (var candidate in candidates)
+                {
+                    candidate.ProductLabel = demand.ProductLabel.Trim();
+                }
             }
 
             var remaining = demand.Quantity;

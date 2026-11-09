@@ -40,6 +40,13 @@ public sealed class ReservationLineDto
     public Guid ProductId { get; set; }
     public int Quantity { get; set; }
     public Guid? WarehouseId { get; set; }
+
+    /// <summary>
+    /// Libelle du produit tel que connu du catalogue, transmis pour que les
+    /// alertes de stock bas d'inventory-service restent lisibles sans qu'il ait
+    /// a interroger catalog-service.
+    /// </summary>
+    public string? ProductLabel { get; set; }
 }
 
 /// <summary>Demande de reservation envoyee a inventory-service.</summary>

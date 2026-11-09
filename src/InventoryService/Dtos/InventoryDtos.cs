@@ -54,6 +54,7 @@ public sealed class StockItemResponse
 {
     public Guid Id { get; set; }
     public Guid ProductId { get; set; }
+    public string? ProductLabel { get; set; }
     public Guid WarehouseId { get; set; }
     public string WarehouseCode { get; set; } = string.Empty;
     public string WarehouseName { get; set; } = string.Empty;
@@ -98,6 +99,13 @@ public sealed class StockMovementRequest
     /// <summary>Seuil d'alerte a appliquer si la ligne de stock est creee par cette entree.</summary>
     [Range(0, 1_000_000)]
     public int? LowStockThreshold { get; set; }
+
+    /// <summary>
+    /// Libelle du produit, recopie du catalogue par l'appelant. Facultatif :
+    /// il ne sert qu'a rendre les alertes de stock bas lisibles.
+    /// </summary>
+    [MaxLength(180)]
+    public string? ProductLabel { get; set; }
 }
 
 /// <summary>Ajustement d'inventaire : la quantite physique est redefinie.</summary>
@@ -190,6 +198,10 @@ public sealed class ReservationLineRequest
     /// sur les entrepots actifs ayant du disponible (du plus fourni au moins fourni).
     /// </summary>
     public Guid? WarehouseId { get; set; }
+
+    /// <summary>Libelle du produit, recopie du catalogue par order-service. Facultatif.</summary>
+    [MaxLength(180)]
+    public string? ProductLabel { get; set; }
 }
 
 /// <summary>Demande de reservation de stock (etape 2 de la saga de commande).</summary>

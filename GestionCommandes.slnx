@@ -6,11 +6,17 @@
   <Folder Name="/src/CatalogService/">
     <Project Path="src/CatalogService/GestionCommandes.CatalogService.csproj" />
   </Folder>
+  <Folder Name="/src/DeliveryService/">
+    <Project Path="src/DeliveryService/GestionCommandes.DeliveryService.csproj" />
+  </Folder>
   <Folder Name="/src/IdentityService/">
     <Project Path="src/IdentityService/GestionCommandes.IdentityService.csproj" />
   </Folder>
   <Folder Name="/src/InventoryService/">
     <Project Path="src/InventoryService/GestionCommandes.InventoryService.csproj" />
+  </Folder>
+  <Folder Name="/src/NotificationService/">
+    <Project Path="src/NotificationService/GestionCommandes.NotificationService.csproj" />
   </Folder>
   <Folder Name="/src/OrderService/">
     <Project Path="src/OrderService/GestionCommandes.OrderService.csproj" />

@@ -73,6 +73,7 @@ namespace GestionCommandes.InventoryService.Data.Migrations
                 {
                     Id = table.Column<Guid>(type: "TEXT", nullable: false),
                     ProductId = table.Column<Guid>(type: "TEXT", nullable: false),
+                    ProductLabel = table.Column<string>(type: "TEXT", maxLength: 180, nullable: true),
                     WarehouseId = table.Column<Guid>(type: "TEXT", nullable: false),
                     QuantityOnHand = table.Column<int>(type: "INTEGER", nullable: false),
                     QuantityReserved = table.Column<int>(type: "INTEGER", nullable: false),

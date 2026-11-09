@@ -46,6 +46,9 @@ public static class InventoryDbInitializer
                 var item = new StockItem
                 {
                     ProductId = seed.ProductId,
+                    // Le seeder connait le catalogue de demonstration : il renseigne
+                    // le libelle d'affichage des le depart.
+                    ProductLabel = DemoData.FindProduct(seed.ProductId)?.Name,
                     WarehouseId = seed.WarehouseId,
                     QuantityOnHand = seed.Quantity,
                     QuantityReserved = 0,
