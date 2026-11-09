@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/GestionCommandes.BuildingBlocks.csproj" />
+  </Folder>
+</Solution>

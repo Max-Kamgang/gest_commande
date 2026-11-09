@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>GestionCommandes.BuildingBlocks</RootNamespace>
+    <AssemblyName>GestionCommandes.BuildingBlocks</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Bibliotheque transverse partagee par tous les microservices :
+    ProblemDetails (RFC 9457), Correlation-ID, JWT, Serilog, health checks,
+    pagination, publication d'evenements et acces disque.
+    Elle depend du framework ASP.NET Core via FrameworkReference (pas de paquet runtime).
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Enrichers.Environment" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+
+</Project>
