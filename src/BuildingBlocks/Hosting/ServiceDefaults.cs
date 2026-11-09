@@ -95,6 +95,7 @@ public static class ServiceDefaults
         services.AddSingleton<EventDispatchQueue>();
         services.AddSingleton<IEventPublisher, QueuedEventPublisher>();
         services.AddTransient<CorrelationIdPropagationHandler>();
+        services.AddTransient<Security.InternalKeyPropagationHandler>();
 
         services.AddHttpClient(EventDispatcherService.HttpClientName, (provider, client) =>
             {
@@ -105,6 +106,7 @@ public static class ServiceDefaults
                 client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
                 client.Timeout = TimeSpan.FromSeconds(30);
             })
+            .AddHttpMessageHandler<Security.InternalKeyPropagationHandler>()
             .AddStandardResilienceHandler(ResilientHttpClientExtensions.ConfigureFireAndForgetPipeline);
 
         services.AddHostedService<EventDispatcherService>();

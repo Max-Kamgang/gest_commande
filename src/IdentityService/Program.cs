@@ -25,7 +25,7 @@ builder.Services.AddDbContext<IdentityDbContext>(options =>
 builder.Services.AddDatabaseReadyCheck<IdentityDbContext>();
 
 // identity-service emet les jetons ET valide ceux qu'il recoit (endpoints /me, /api/users).
-builder.Services.AddJwtAuthentication(builder.Configuration);
+builder.Services.AddPlatformAuthentication(builder.Configuration);
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<UserService>();

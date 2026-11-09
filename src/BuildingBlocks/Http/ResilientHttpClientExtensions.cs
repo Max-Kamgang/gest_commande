@@ -1,4 +1,5 @@
 using GestionCommandes.BuildingBlocks.Correlation;
+using GestionCommandes.BuildingBlocks.Security;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -28,6 +29,7 @@ public static class ResilientHttpClientExtensions
         where TImplementation : class, TClient
     {
         services.AddTransient<CorrelationIdPropagationHandler>();
+        services.AddTransient<InternalKeyPropagationHandler>();
 
         var builder = services
             .AddHttpClient<TClient, TImplementation>((provider, client) =>
@@ -39,7 +41,8 @@ public static class ResilientHttpClientExtensions
                 // Le timeout reel est pilote par le pipeline de resilience ci-dessous.
                 client.Timeout = TimeSpan.FromSeconds(60);
             })
-            .AddHttpMessageHandler<CorrelationIdPropagationHandler>();
+            .AddHttpMessageHandler<CorrelationIdPropagationHandler>()
+            .AddHttpMessageHandler<InternalKeyPropagationHandler>();
 
         builder.AddStandardResilienceHandler(ConfigureStandardPipeline);
 

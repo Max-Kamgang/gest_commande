@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,17 +10,26 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace GestionCommandes.BuildingBlocks.Security;
 
-/// <summary>Enregistrement de l'authentification JWT Bearer, identique dans tous les services.</summary>
+/// <summary>
+/// Enregistrement de l'authentification de la plateforme, identique dans tous les services :
+/// <list type="number">
+///   <item>JWT Bearer pour les appels d'utilisateurs,</item>
+///   <item>cle interne partagee pour les appels de service a service.</item>
+/// </list>
+/// </summary>
 public static class JwtAuthenticationExtensions
 {
     /// <summary>
-    /// Ajoute la validation des jetons JWT (signature, emetteur, audience, duree de vie)
-    /// et renvoie des reponses 401/403 au format ProblemDetails.
+    /// Ajoute la validation des jetons JWT (signature, emetteur, audience, duree de vie),
+    /// le schema de cle interne, et renvoie des reponses 401/403 au format ProblemDetails.
     /// </summary>
-    public static IServiceCollection AddJwtAuthentication(
+    public static IServiceCollection AddPlatformAuthentication(
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddOptions<InternalKeyOptions>()
+            .Bind(configuration.GetSection(InternalKeyOptions.SectionName));
+
         services.AddOptions<JwtOptions>()
             .Bind(configuration.GetSection(JwtOptions.SectionName))
             .ValidateDataAnnotations()
@@ -73,15 +83,34 @@ public static class JwtAuthenticationExtensions
                         "Votre role ne permet pas d'acceder a cette ressource.",
                         "FORBIDDEN")
                 };
-            });
+            })
+            .AddScheme<InternalKeyOptions, InternalKeyAuthenticationHandler>(
+                InternalKeyDefaults.Scheme,
+                schemeOptions => schemeOptions.ApiKey =
+                    configuration.GetSection(InternalKeyOptions.SectionName)["ApiKey"] ?? string.Empty);
+
+        // Les deux schemas sont acceptes partout : HttpContext.User agrege les identites.
+        string[] schemes = [JwtBearerDefaults.AuthenticationScheme, InternalKeyDefaults.Scheme];
 
         services.AddAuthorizationBuilder()
-            .AddPolicy(AuthPolicies.BackOffice, policy =>
-                policy.RequireRole(Roles.Admin, Roles.Gestionnaire))
-            .AddPolicy(AuthPolicies.AdminOnly, policy =>
-                policy.RequireRole(Roles.Admin))
-            .AddPolicy(AuthPolicies.Livraisons, policy =>
-                policy.RequireRole(Roles.Admin, Roles.Gestionnaire, Roles.Livreur));
+            .SetDefaultPolicy(new AuthorizationPolicyBuilder(schemes)
+                .RequireAuthenticatedUser()
+                .Build())
+            .AddPolicy(AuthPolicies.BackOffice, policy => policy
+                .AddAuthenticationSchemes(schemes)
+                .RequireRole(Roles.Admin, Roles.Gestionnaire))
+            .AddPolicy(AuthPolicies.AdminOnly, policy => policy
+                .AddAuthenticationSchemes(schemes)
+                .RequireRole(Roles.Admin))
+            .AddPolicy(AuthPolicies.Livraisons, policy => policy
+                .AddAuthenticationSchemes(schemes)
+                .RequireRole(Roles.Admin, Roles.Gestionnaire, Roles.Livreur))
+            .AddPolicy(AuthPolicies.BackOfficeOuService, policy => policy
+                .AddAuthenticationSchemes(schemes)
+                .RequireRole(Roles.Admin, Roles.Gestionnaire, Roles.Service))
+            .AddPolicy(AuthPolicies.Interne, policy => policy
+                .AddAuthenticationSchemes(schemes)
+                .RequireRole(Roles.Service));
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUser>();
@@ -134,4 +163,10 @@ public static class AuthPolicies
 
     /// <summary>Admin, Gestionnaire ou Livreur.</summary>
     public const string Livraisons = "livraisons";
+
+    /// <summary>Admin, Gestionnaire ou appel interne de service a service.</summary>
+    public const string BackOfficeOuService = "back-office-ou-service";
+
+    /// <summary>Appel interne de service a service uniquement.</summary>
+    public const string Interne = "interne";
 }

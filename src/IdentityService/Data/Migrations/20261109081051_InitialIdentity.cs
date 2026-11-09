@@ -23,8 +23,8 @@ namespace GestionCommandes.IdentityService.Data.Migrations
                     IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
                     CourierId = table.Column<Guid>(type: "TEXT", nullable: true),
                     CustomerId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    LastLoginAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    CreatedAt = table.Column<long>(type: "INTEGER", nullable: false),
+                    LastLoginAt = table.Column<long>(type: "INTEGER", nullable: true),
                     FailedLoginCount = table.Column<int>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>

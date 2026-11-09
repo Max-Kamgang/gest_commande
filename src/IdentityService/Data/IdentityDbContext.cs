@@ -1,3 +1,4 @@
+using GestionCommandes.BuildingBlocks.Data;
 using GestionCommandes.IdentityService.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,7 +8,7 @@ namespace GestionCommandes.IdentityService.Data;
 /// Base SQLite <b>propre a identity-service</b> (fichier <c>identity-service.db</c>).
 /// Aucune autre base n'est partagee : c'est la regle « une base par microservice ».
 /// </summary>
-public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : DbContext(options)
+public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : ServiceDbContext(options)
 {
     /// <summary>Comptes utilisateurs.</summary>
     public DbSet<AppUser> Users => Set<AppUser>();

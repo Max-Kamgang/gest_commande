@@ -15,8 +15,17 @@ public static class Roles
     /// <summary>Client : consultation du catalogue et de SES commandes.</summary>
     public const string Client = "Client";
 
-    /// <summary>Tous les roles connus.</summary>
+    /// <summary>
+    /// Role technique porte uniquement par les appels de service a service
+    /// (en-tete <c>X-Internal-Key</c>). Il n'est jamais attribuable a un compte humain.
+    /// </summary>
+    public const string Service = "Service";
+
+    /// <summary>Roles attribuables a un compte utilisateur.</summary>
     public static readonly string[] All = [Admin, Gestionnaire, Livreur, Client];
+
+    /// <summary>Back-office + appels internes : utilise par les endpoints de la saga.</summary>
+    public const string BackOfficeOuService = Admin + "," + Gestionnaire + "," + Service;
 
     /// <summary>Raccourci pour les politiques "back-office".</summary>
     public const string AdminOuGestionnaire = Admin + "," + Gestionnaire;

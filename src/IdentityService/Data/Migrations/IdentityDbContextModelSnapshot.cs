@@ -26,8 +26,8 @@ namespace GestionCommandes.IdentityService.Data.Migrations
                     b.Property<Guid?>("CourierId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid?>("CustomerId")
                         .HasColumnType("TEXT");
@@ -48,8 +48,8 @@ namespace GestionCommandes.IdentityService.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LastLoginAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastLoginAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()

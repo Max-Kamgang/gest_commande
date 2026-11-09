@@ -3,6 +3,9 @@
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/GestionCommandes.BuildingBlocks.csproj" />
   </Folder>
+  <Folder Name="/src/CatalogService/">
+    <Project Path="src/CatalogService/GestionCommandes.CatalogService.csproj" />
+  </Folder>
   <Folder Name="/src/IdentityService/">
     <Project Path="src/IdentityService/GestionCommandes.IdentityService.csproj" />
   </Folder>
