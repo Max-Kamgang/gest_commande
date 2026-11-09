@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    Proprietes communes a tous les projets de la solution.
+    Cible : .NET 10 (LTS) - ASP.NET Core Web API.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591 : commentaires XML manquants - non bloquant pour un projet pedagogique -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <!-- Les images nanoserver n'embarquent pas ICU : evite une dependance inutile -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>GestionCommandes.IdentityService</RootNamespace>
+    <AssemblyName>GestionCommandes.IdentityService</AssemblyName>
+    <!-- Nom technique du service, utilise pour les logs, la base et Swagger -->
+    <ServiceName>identity-service</ServiceName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\GestionCommandes.BuildingBlocks.csproj" />
+  </ItemGroup>
+
+</Project>

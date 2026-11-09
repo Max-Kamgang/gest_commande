@@ -1,0 +1,35 @@
+# Contexte de build commun a tous les services : le repertoire racine est envoye
+# au daemon. On exclut tout ce qui n'est pas necessaire a la compilation.
+
+# Sorties de compilation et artefacts locaux
+**/bin
+**/obj
+**/.vs
+**/.vscode
+**/.idea
+**/TestResults
+
+# Donnees et journaux de developpement (ne jamais embarquer une base dans une image)
+**/data
+**/logs
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Secrets et configuration locale
+.env
+**/*.pfx
+**/*.key
+**/appsettings.Local.json
+**/Properties/launchSettings.json
+
+# Hors perimetre de l'image
+tests
+docs
+infra
+.git
+.github
+**/*.md
+**/Dockerfile
+docker-compose*.yml
+docker-stack*.yml
