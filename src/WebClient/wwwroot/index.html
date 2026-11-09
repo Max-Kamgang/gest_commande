@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gestion des commandes, du stock et des livraisons</title>
+    <meta name="description" content="Plateforme microservices de gestion des commandes, du stock et des livraisons." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128230;</text></svg>" />
+    <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+    <!-- Ecran de connexion -->
+    <div id="ecran-connexion" class="ecran-connexion" hidden>
+        <form id="formulaire-connexion" class="carte-connexion" autocomplete="on">
+            <div class="marque">
+                <span class="marque-icone">&#128230;</span>
+                <div>
+                    <h1>Gestion des commandes</h1>
+                    <p>Stock et livraisons &middot; architecture microservices</p>
+                </div>
+            </div>
+
+            <label for="champ-identifiant">Identifiant</label>
+            <input id="champ-identifiant" name="username" type="email" required
+                   autocomplete="username" placeholder="admin@micro.local" />
+
+            <label for="champ-motdepasse">Mot de passe</label>
+            <input id="champ-motdepasse" name="password" type="password" required
+                   autocomplete="current-password" placeholder="Micro@2025!" />
+
+            <button type="submit" class="bouton bouton-principal bouton-large">Se connecter</button>
+
+            <p id="erreur-connexion" class="message-erreur" hidden></p>
+
+            <details class="comptes-test">
+                <summary>Comptes de demonstration</summary>
+                <table>
+                    <tbody>
+                        <tr><td>Admin</td><td><code>admin@micro.local</code></td></tr>
+                        <tr><td>Gestionnaire</td><td><code>gestion@micro.local</code></td></tr>
+                        <tr><td>Livreur</td><td><code>livreur@micro.local</code></td></tr>
+                        <tr><td>Client</td><td><code>client@micro.local</code></td></tr>
+                    </tbody>
+                </table>
+                <p>Mot de passe commun : <code>Micro@2025!</code></p>
+            </details>
+        </form>
+    </div>
+
+    <!-- Application -->
+    <div id="application" class="application" hidden>
+        <aside class="barre-laterale">
+            <div class="marque marque-compacte">
+                <span class="marque-icone">&#128230;</span>
+                <div>
+                    <strong>Gestion commandes</strong>
+                    <small>Microservices &middot; .NET 10</small>
+                </div>
+            </div>
+
+            <nav id="navigation" class="navigation"></nav>
+
+            <div class="pied-barre">
+                <div id="bloc-utilisateur" class="bloc-utilisateur"></div>
+                <button id="bouton-deconnexion" type="button" class="bouton bouton-discret bouton-large">
+                    Se deconnecter
+                </button>
+            </div>
+        </aside>
+
+        <main class="contenu">
+            <header class="entete">
+                <div>
+                    <h2 id="titre-vue">Tableau de bord</h2>
+                    <p id="sous-titre-vue" class="sous-titre"></p>
+                </div>
+                <div class="actions-entete">
+                    <span id="indicateur-sante" class="pastille" title="Etat de la plateforme">&#9679; verification...</span>
+                    <button id="bouton-rafraichir" type="button" class="bouton bouton-discret">Rafraichir</button>
+                </div>
+            </header>
+
+            <section id="vue" class="vue"></section>
+        </main>
+    </div>
+
+    <div id="zone-messages" class="zone-messages" aria-live="polite"></div>
+
+    <script type="module" src="/js/app.js"></script>
+</body>
+</html>

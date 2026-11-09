@@ -43,3 +43,6 @@ app.UseServiceDefaults(ServiceName);
 app.MapControllers();
 
 app.Run();
+
+/// <summary>Point d’entrée visible pour WebApplicationFactory dans les tests d’intégration.</summary>
+public partial class Program;

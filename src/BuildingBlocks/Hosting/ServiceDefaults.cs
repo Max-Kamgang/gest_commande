@@ -119,7 +119,10 @@ public static class ServiceDefaults
     /// Correlation-ID d'abord (pour que tout le reste en dispose), puis le gestionnaire
     /// d'exceptions, puis la journalisation des requetes.
     /// </summary>
-    public static WebApplication UseServiceDefaults(this WebApplication app, string serviceName)
+    public static WebApplication UseServiceDefaults(
+        this WebApplication app,
+        string serviceName,
+        bool includeSwagger = true)
     {
         // 1. Correlation-ID : tout le reste du pipeline en dispose, logs compris.
         app.UseMiddleware<CorrelationIdMiddleware>();
@@ -135,7 +138,11 @@ public static class ServiceDefaults
         // 4. Codes d'erreur sans corps (404 de routage, 405...) -> ProblemDetails.
         app.UseStatusCodePages();
 
-        app.UseSwaggerWithJwt(serviceName);
+        // La gateway declare sa propre interface Swagger agregee : elle desactive celle-ci.
+        if (includeSwagger)
+        {
+            app.UseSwaggerWithJwt(serviceName);
+        }
 
         app.UseAuthentication();
         app.UseAuthorization();

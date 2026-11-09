@@ -9,6 +9,9 @@
   <Folder Name="/src/DeliveryService/">
     <Project Path="src/DeliveryService/GestionCommandes.DeliveryService.csproj" />
   </Folder>
+  <Folder Name="/src/Gateway/">
+    <Project Path="src/Gateway/GestionCommandes.Gateway.csproj" />
+  </Folder>
   <Folder Name="/src/IdentityService/">
     <Project Path="src/IdentityService/GestionCommandes.IdentityService.csproj" />
   </Folder>
@@ -20,5 +23,8 @@
   </Folder>
   <Folder Name="/src/OrderService/">
     <Project Path="src/OrderService/GestionCommandes.OrderService.csproj" />
+  </Folder>
+  <Folder Name="/src/WebClient/">
+    <Project Path="src/WebClient/GestionCommandes.WebClient.csproj" />
   </Folder>
 </Solution>
