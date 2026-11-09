@@ -12,4 +12,7 @@
   <Folder Name="/src/InventoryService/">
     <Project Path="src/InventoryService/GestionCommandes.InventoryService.csproj" />
   </Folder>
+  <Folder Name="/src/OrderService/">
+    <Project Path="src/OrderService/GestionCommandes.OrderService.csproj" />
+  </Folder>
 </Solution>

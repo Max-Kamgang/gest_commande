@@ -80,7 +80,7 @@ public static class DownstreamHttpExtensions
             return;
         }
 
-        var (title, detail, errorCode) = await ReadProblemAsync(response, cancellationToken);
+        var (title, detail, errorCode, extensions) = await ReadProblemAsync(response, cancellationToken);
 
         if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.RequestTimeout)
         {
@@ -94,12 +94,12 @@ public static class DownstreamHttpExtensions
             response.StatusCode,
             title ?? "Appel refuse par un service dependant",
             detail,
-            errorCode);
+            errorCode,
+            extensions);
     }
 
-    private static async Task<(string? Title, string Detail, string? ErrorCode)> ReadProblemAsync(
-        HttpResponseMessage response,
-        CancellationToken cancellationToken)
+    private static async Task<(string? Title, string Detail, string? ErrorCode, IDictionary<string, object?>? Extensions)>
+        ReadProblemAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try
         {
@@ -117,18 +117,20 @@ public static class DownstreamHttpExtensions
 
                     return (problem.Title,
                         problem.Detail ?? problem.Title ?? $"HTTP {(int)response.StatusCode}",
-                        code);
+                        code,
+                        problem.Extensions);
                 }
             }
 
             var text = await response.Content.ReadAsStringAsync(cancellationToken);
             return (null,
                 string.IsNullOrWhiteSpace(text) ? $"HTTP {(int)response.StatusCode}" : Truncate(text, 500),
+                null,
                 null);
         }
         catch (Exception)
         {
-            return (null, $"HTTP {(int)response.StatusCode}", null);
+            return (null, $"HTTP {(int)response.StatusCode}", null, null);
         }
     }
 
