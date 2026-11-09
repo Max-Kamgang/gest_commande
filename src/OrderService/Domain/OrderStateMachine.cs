@@ -1,17 +1,43 @@
-using GestionCommandes.BuildingBlocks.Errors;
+using GestionCommandes.Shared.Errors;
 
 namespace GestionCommandes.OrderService.Domain;
 
 /// <summary>
-/// Machine a etats de la commande, isolee de l'infrastructure pour etre
-/// directement testable unitairement.
+/// Etats du cycle de vie d'une commande.
 ///
-/// Regle du projet : toute transition non autorisee se traduit par un
-/// <b>409 Conflict</b> porteur d'un message explicite, jamais par un 400 ou un 500.
+/// Chemin nominal : Brouillon, Confirmee, EnPreparation, Expediee, Livree.
+/// L'annulation reste possible tant que la marchandise n'est pas sortie du stock.
+/// </summary>
+public enum OrderStatus
+{
+    /// <summary>En cours de saisie : lignes modifiables, aucun stock engage.</summary>
+    Brouillon = 1,
+
+    /// <summary>Prix figes et stock reserve : la commande est engagee.</summary>
+    Confirmee = 2,
+
+    /// <summary>Preparation physique en cours.</summary>
+    EnPreparation = 3,
+
+    /// <summary>Stock sorti et bordereau de livraison cree.</summary>
+    Expediee = 4,
+
+    /// <summary>Livraison confirmee par le livreur. Etat final.</summary>
+    Livree = 5,
+
+    /// <summary>Commande annulee, stock libere. Etat final.</summary>
+    Annulee = 6
+}
+
+/// <summary>
+/// Machine a etats de la commande, volontairement separee de l'infrastructure :
+/// elle ne connait ni la base ni HTTP, et se lit comme la regle metier.
+///
+/// Regle du projet : une transition interdite renvoie un 409 avec le detail des
+/// transitions possibles, jamais un 400 ni un 500.
 /// </summary>
 public static class OrderStateMachine
 {
-    /// <summary>Transitions autorisees, etat par etat.</summary>
     private static readonly Dictionary<OrderStatus, OrderStatus[]> Transitions = new()
     {
         [OrderStatus.Brouillon] = [OrderStatus.Confirmee, OrderStatus.Annulee],
@@ -22,41 +48,36 @@ public static class OrderStateMachine
         [OrderStatus.Annulee] = []
     };
 
-    /// <summary>Etats finaux : plus aucune transition n'est possible.</summary>
-    public static readonly OrderStatus[] FinalStates = [OrderStatus.Livree, OrderStatus.Annulee];
-
-    /// <summary>Etats depuis lesquels une annulation est encore recevable.</summary>
-    public static readonly OrderStatus[] CancellableStates =
-        [OrderStatus.Brouillon, OrderStatus.Confirmee, OrderStatus.EnPreparation];
-
     /// <summary>Etats dans lesquels du stock est immobilise par une reservation.</summary>
-    public static readonly OrderStatus[] StatesHoldingStock =
-        [OrderStatus.Confirmee, OrderStatus.EnPreparation];
+    public static readonly OrderStatus[] StatesHoldingStock = [OrderStatus.Confirmee, OrderStatus.EnPreparation];
 
     /// <summary>Indique si une transition est autorisee.</summary>
+    /// <param name="from">Etat courant.</param>
+    /// <param name="to">Etat demande.</param>
     public static bool CanTransition(OrderStatus from, OrderStatus to) =>
         Transitions.TryGetValue(from, out var allowed) && allowed.Contains(to);
 
     /// <summary>Etats accessibles depuis un etat donne.</summary>
+    /// <param name="from">Etat courant.</param>
     public static IReadOnlyCollection<OrderStatus> NextStates(OrderStatus from) =>
         Transitions.TryGetValue(from, out var allowed) ? allowed : [];
 
     /// <summary>Indique si l'etat est final.</summary>
-    public static bool IsFinal(OrderStatus status) => FinalStates.Contains(status);
+    /// <param name="status">Etat a tester.</param>
+    public static bool IsFinal(OrderStatus status) => NextStates(status).Count == 0;
 
-    /// <summary>Indique si les lignes de la commande sont encore modifiables.</summary>
+    /// <summary>Indique si les lignes sont encore modifiables.</summary>
+    /// <param name="status">Etat a tester.</param>
     public static bool AllowsLineEdition(OrderStatus status) => status == OrderStatus.Brouillon;
 
-    /// <summary>Indique si du stock est actuellement reserve pour cet etat.</summary>
+    /// <summary>Indique si du stock est reserve dans cet etat.</summary>
+    /// <param name="status">Etat a tester.</param>
     public static bool HoldsStock(OrderStatus status) => StatesHoldingStock.Contains(status);
 
-    /// <summary>
-    /// Verifie une transition et leve un <see cref="ConflictException"/> explicite
-    /// (409) si elle n'est pas autorisee.
-    /// </summary>
+    /// <summary>Verifie une transition, ou leve un 409 explicite.</summary>
     /// <param name="from">Etat courant.</param>
     /// <param name="to">Etat demande.</param>
-    /// <param name="orderNumber">Numero de commande, pour le message d'erreur.</param>
+    /// <param name="orderNumber">Numero de commande, pour le message.</param>
     public static void EnsureCanTransition(OrderStatus from, OrderStatus to, string orderNumber)
     {
         if (CanTransition(from, to))
@@ -66,20 +87,10 @@ public static class OrderStateMachine
 
         var next = NextStates(from);
 
-        var detail = IsFinal(from)
-            ? $"La commande {orderNumber} est dans l'etat final « {from} » : aucune transition n'est plus possible " +
-              $"(transition demandee : « {to} »)."
+        throw new ConflictException(IsFinal(from)
+            ? $"La commande {orderNumber} est dans l'etat final « {from} » : aucune transition n'est plus " +
+              $"possible (transition demandee : « {to} »)."
             : $"La commande {orderNumber} est dans l'etat « {from} » : la transition vers « {to} » n'est pas " +
-              $"autorisee. Transition(s) possible(s) : {string.Join(", ", next)}.";
-
-        throw new ConflictException(
-            detail,
-            "INVALID_STATE_TRANSITION",
-            new Dictionary<string, object?>
-            {
-                ["currentStatus"] = from.ToString(),
-                ["requestedStatus"] = to.ToString(),
-                ["allowedTransitions"] = next.Select(s => s.ToString()).ToArray()
-            });
+              $"autorisee. Transition(s) possible(s) : {string.Join(", ", next)}.");
     }
 }

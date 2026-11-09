@@ -1,40 +1,32 @@
-using GestionCommandes.BuildingBlocks.Hosting;
-using GestionCommandes.BuildingBlocks.Security;
 using GestionCommandes.IdentityService.Data;
 using GestionCommandes.IdentityService.Services;
+using GestionCommandes.Shared.Hosting;
+using GestionCommandes.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 // ---------------------------------------------------------------------------
-// identity-service : comptes utilisateurs, connexion et emission des jetons JWT.
-// Port interne en conteneur : 8080. Port local (dotnet run) : 5001.
+// identity-service : comptes, roles et emission des jetons JWT.
+// Port dans le conteneur : 8080. En local (dotnet run) : 5001.
 // ---------------------------------------------------------------------------
 
 const string ServiceName = "identity-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Socle commun : Serilog, ProblemDetails, Correlation-ID, Swagger, health checks.
-builder.AddServiceDefaults(
+var storage = builder.AddServiceDefaults(
     ServiceName,
-    "Gestion des comptes, authentification et emission des jetons JWT (roles Admin, Gestionnaire, Livreur, Client).");
+    "Comptes utilisateurs, roles et emission des jetons JWT de la plateforme.");
 
-// Base SQLite dediee a ce service, dans le volume monte.
-builder.Services.AddDbContext<IdentityDbContext>((provider, options) =>
-    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
+builder.Services.AddDbContext<IdentityDbContext>(options => options.UseSqlite(storage.ConnectionString));
+builder.Services.AddDatabaseCheck<IdentityDbContext>();
 
-builder.Services.AddDatabaseReadyCheck<IdentityDbContext>();
-
-// identity-service emet les jetons ET valide ceux qu'il recoit (endpoints /me, /api/users).
 builder.Services.AddPlatformAuthentication(builder.Configuration);
-
-builder.Services.AddScoped<ITokenService, TokenService>();
-builder.Services.AddScoped<UserService>();
-
-builder.Services.AddApiControllers(ServiceName);
+builder.Services.AddScoped<TokenService>();
+builder.Services.AddApiControllers();
 
 var app = builder.Build();
 
-// Migrations + donnees de demonstration.
+// Cree la base et les comptes de demonstration au premier demarrage.
 await IdentityDbInitializer.InitializeAsync(app.Services);
 
 app.UseServiceDefaults(ServiceName);

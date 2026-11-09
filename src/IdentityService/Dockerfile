@@ -1,49 +1,41 @@
 # syntax=docker/dockerfile:1
-# Image Windows (nanoserver) du service identity-service - build multi-etapes.
-# Le contexte de build est la RACINE du depot : la bibliotheque BuildingBlocks et les
-# proprietes communes (Directory.Build.props / Directory.Packages.props) y sont necessaires.
-#
-# Tags parametrables :
-#   docker build --build-arg SDK_IMAGE=... --build-arg RUNTIME_IMAGE=... -f src/IdentityService/Dockerfile .
+# Image Windows du service IdentityService, en deux etapes.
+# A construire depuis la RACINE du depot : le projet Shared et les fichiers
+# Directory.*.props y sont necessaires.
+#   docker build -f src/IdentityService/Dockerfile .
+# Les tags des images de base viennent du fichier .env (SDK_IMAGE / RUNTIME_IMAGE).
 
 ARG SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0-nanoserver-ltsc2025
 ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/aspnet:10.0-nanoserver-ltsc2025
 
-# ---------------------------------------------------------------------------
-# Etape 1 : restauration et publication
-# ---------------------------------------------------------------------------
+# --- Etape 1 : restauration puis publication --------------------------------
 FROM ${SDK_IMAGE} AS build
 WORKDIR C:\src
 
-# Les fichiers projet sont copies avant le code : la couche de restauration NuGet
-# n'est reconstruite que lorsque les dependances changent.
+# Les .csproj sont copies avant le code : la couche NuGet n'est reconstruite que
+# lorsque les dependances changent, pas a chaque modification de code.
 COPY Directory.Build.props Directory.Packages.props ./
-COPY src/BuildingBlocks/GestionCommandes.BuildingBlocks.csproj src/BuildingBlocks/
+COPY src/Shared/GestionCommandes.Shared.csproj src/Shared/
 COPY src/IdentityService/GestionCommandes.IdentityService.csproj src/IdentityService/
 RUN dotnet restore src/IdentityService/GestionCommandes.IdentityService.csproj
 
-COPY src/BuildingBlocks/ src/BuildingBlocks/
+COPY src/Shared/ src/Shared/
 COPY src/IdentityService/ src/IdentityService/
-RUN dotnet publish src/IdentityService/GestionCommandes.IdentityService.csproj -c Release -o C:\app --no-restore -p:UseAppHost=false
+RUN dotnet publish src/IdentityService/GestionCommandes.IdentityService.csproj -c Release -o C:\app --no-restore
 
-# ---------------------------------------------------------------------------
-# Etape 2 : image d'execution (ASP.NET Core runtime, nanoserver)
-# ---------------------------------------------------------------------------
+# --- Etape 2 : image d'execution --------------------------------------------
 FROM ${RUNTIME_IMAGE} AS final
 WORKDIR C:\app
 
-# Le service ecoute sur 8080 a l'interieur du conteneur.
-ENV ASPNETCORE_URLS=http://+:8080 \
-    ASPNETCORE_ENVIRONMENT=Production \
-    Storage__DataPath=C:\app\data \
-    DOTNET_RUNNING_IN_CONTAINER=true
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV Storage__DataPath=C:\app\data
 
 EXPOSE 8080
 
-# Les images nanoserver tournent sous ContainerUser. Ce compte doit pouvoir ECRIRE dans
-# le dossier de donnees (base SQLite et journaux). Sans cette ligne, la sonde /health/ready
-# et les migrations echouent au premier demarrage (AccessDenied). Le droit est accorde
-# explicitement a ce dossier seulement, le reste de C:\app reste en lecture seule.
+# Les images nanoserver tournent sous ContainerUser, qui ne peut pas ecrire
+# partout : on lui accorde explicitement le droit d'ecrire dans le dossier de
+# donnees (base SQLite). Sans cette ligne, le premier demarrage echoue.
 RUN mkdir C:\app\data && icacls C:\app\data /grant "ContainerUser:(OI)(CI)M"
 
 COPY --from=build C:\app .

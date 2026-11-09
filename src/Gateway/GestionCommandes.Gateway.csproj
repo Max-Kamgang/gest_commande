@@ -3,7 +3,6 @@
   <PropertyGroup>
     <RootNamespace>GestionCommandes.Gateway</RootNamespace>
     <AssemblyName>GestionCommandes.Gateway</AssemblyName>
-    <ServiceName>gateway</ServiceName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BuildingBlocks\GestionCommandes.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Shared\GestionCommandes.Shared.csproj" />
   </ItemGroup>
 
 </Project>

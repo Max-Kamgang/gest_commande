@@ -1,45 +1,46 @@
-using GestionCommandes.BuildingBlocks.Hosting;
-using GestionCommandes.BuildingBlocks.Http;
-using GestionCommandes.BuildingBlocks.Security;
-using GestionCommandes.DeliveryService.Clients;
 using GestionCommandes.DeliveryService.Data;
 using GestionCommandes.DeliveryService.Services;
+using GestionCommandes.Shared.Hosting;
+using GestionCommandes.Shared.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 // ---------------------------------------------------------------------------
-// delivery-service : livreurs, livraisons, affectation et suivi.
-// Informe order-service lorsqu'une livraison est effectuee.
-// Port interne en conteneur : 8080. Port local (dotnet run) : 5005.
+// delivery-service : livreurs, bordereaux de livraison et notifications de suivi.
+// Port dans le conteneur : 8080. En local (dotnet run) : 5004.
 // ---------------------------------------------------------------------------
 
 const string ServiceName = "delivery-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults(
+var storage = builder.AddServiceDefaults(
     ServiceName,
-    "Livraisons : bordereaux crees a l'expedition, affectation des livreurs, " +
-    "suivi des statuts et historique. Un livreur ne met a jour que ses livraisons.");
+    "Livraisons : livreurs, bordereaux, suivi des tournees et notifications.");
 
-builder.Services.AddDbContext<DeliveryDbContext>((provider, options) =>
-    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
+builder.Services.AddDbContext<DeliveryDbContext>(options => options.UseSqlite(storage.ConnectionString));
+builder.Services.AddDatabaseCheck<DeliveryDbContext>();
 
-builder.Services.AddDatabaseReadyCheck<DeliveryDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);
-builder.Services.AddEventPublishing();
+builder.Services.AddApiControllers();
 
-// Rappel vers order-service a la cloture d'une livraison.
-builder.Services.AddResilientServiceClient<IOrderClient, OrderClient>(
-    endpoints => endpoints.Order,
-    ServiceName);
+// Appel sortant unique : prevenir order-service qu'une commande est livree.
+builder.Services.AddTransient<InternalKeyHeaderHandler>();
 
-builder.Services.AddScoped<CourierManager>();
-builder.Services.AddScoped<DeliveryManager>();
+builder.Services.AddHttpClient<OrderClient>((provider, client) =>
+    {
+        var endpoints = provider.GetRequiredService<IOptions<ServiceEndpointsOptions>>().Value;
 
-builder.Services.AddApiControllers(ServiceName);
+        client.BaseAddress = new Uri(endpoints.Order.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .AddHttpMessageHandler<InternalKeyHeaderHandler>();
+
+builder.Services.AddScoped<DeliveryWorkflow>();
 
 var app = builder.Build();
 
+// Cree la base et les livreurs de demonstration au premier demarrage.
 await DeliveryDbInitializer.InitializeAsync(app.Services);
 
 app.UseServiceDefaults(ServiceName);

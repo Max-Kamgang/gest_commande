@@ -1,111 +1,81 @@
-using System.Text.Json;
-using GestionCommandes.BuildingBlocks.Http;
+using GestionCommandes.Shared.Security;
 using Microsoft.Extensions.Options;
 
 namespace GestionCommandes.Gateway.Configuration;
 
 /// <summary>
-/// Agregation de l'etat de sante de tous les microservices, exposee par la
-/// gateway sur <c>/health/services</c>.
-///
-/// Utile a la demonstration et au script <c>infra/07-monitoring.ps1</c> :
-/// un seul appel depuis la machine cliente suffit a voir l'etat de la
-/// plateforme, alors qu'aucun service n'est publie sur l'hote.
+/// Expose <c>/health/services</c> : l'etat des quatre microservices en une seule
+/// requete. Pratique pour la demonstration et pour la supervision, car aucun
+/// service n'est publie sur l'hote : seule la gateway peut les interroger.
 /// </summary>
 public static class HealthAggregation
 {
-    /// <summary>Nom du HttpClient utilise pour interroger les services.</summary>
+    /// <summary>Nom du client HTTP des sondes.</summary>
     public const string HttpClientName = "health-probe";
 
-    /// <summary>Expose l'endpoint d'agregation.</summary>
-    public static void MapServicesHealth(this WebApplication app)
+    /// <summary>Branche l'endpoint d'agregation.</summary>
+    /// <param name="app">Application.</param>
+    public static WebApplication MapServicesHealth(this WebApplication app)
     {
         app.MapGet("/health/services", async (
                 IHttpClientFactory factory,
-                IOptions<ServiceEndpointsOptions> endpoints,
-                IOptions<GatewayOptions> gateway,
-                ILoggerFactory loggerFactory,
+                IOptions<ServiceEndpointsOptions> options,
                 CancellationToken cancellationToken) =>
             {
-                var logger = loggerFactory.CreateLogger("HealthAggregation");
-                var client = factory.CreateClient(HttpClientName);
+                var endpoints = options.Value;
 
                 var targets = new Dictionary<string, string>
                 {
-                    ["identity-service"] = endpoints.Value.Identity,
-                    ["catalog-service"] = endpoints.Value.Catalog,
-                    ["inventory-service"] = endpoints.Value.Inventory,
-                    ["order-service"] = endpoints.Value.Order,
-                    ["delivery-service"] = endpoints.Value.Delivery,
-                    ["notification-service"] = endpoints.Value.Notification,
-                    ["web-client"] = gateway.Value.WebClientUrl
+                    ["identity-service"] = endpoints.Identity,
+                    ["catalog-service"] = endpoints.Catalog,
+                    ["order-service"] = endpoints.Order,
+                    ["delivery-service"] = endpoints.Delivery
                 };
 
-                var probes = await Task.WhenAll(targets.Select(target =>
-                    ProbeAsync(client, target.Key, target.Value, logger, cancellationToken)));
+                var client = factory.CreateClient(HttpClientName);
 
-                var healthy = probes.Count(p => p.Healthy);
-
-                var payload = new
+                // Les quatre sondes partent en parallele : la reponse arrive en
+                // une seule attente, pas en quatre.
+                var probes = await Task.WhenAll(targets.Select(async target =>
                 {
-                    status = healthy == probes.Length ? "Healthy" : healthy == 0 ? "Unhealthy" : "Degraded",
-                    healthy,
-                    total = probes.Length,
-                    checkedAt = DateTimeOffset.UtcNow,
-                    services = probes
-                };
+                    try
+                    {
+                        var response = await client.GetAsync(
+                            $"{target.Value.TrimEnd('/')}/health/ready", cancellationToken);
 
-                return Results.Json(
-                    payload,
-                    new JsonSerializerOptions { WriteIndented = true },
-                    statusCode: healthy == probes.Length
-                        ? StatusCodes.Status200OK
-                        : StatusCodes.Status503ServiceUnavailable);
+                        return new
+                        {
+                            service = target.Key,
+                            statut = response.IsSuccessStatusCode ? "Healthy" : "Unhealthy",
+                            code = (int)response.StatusCode,
+                            detail = (string?)null
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        return new
+                        {
+                            service = target.Key,
+                            statut = "Unreachable",
+                            code = 0,
+                            detail = (string?)ex.Message
+                        };
+                    }
+                }));
+
+                var global = probes.All(probe => probe.statut == "Healthy") ? "Healthy" : "Degraded";
+
+                return Results.Json(new
+                {
+                    plateforme = "gestion-commandes",
+                    statut = global,
+                    horodatage = DateTimeOffset.UtcNow,
+                    services = probes
+                });
             })
             .AllowAnonymous()
-            .WithName("AgregationSante")
-            .WithSummary("Etat de sante consolide de tous les microservices.");
+            .WithName("SanteDesServices");
+
+        return app;
     }
-
-    private static async Task<ProbeResult> ProbeAsync(
-        HttpClient client,
-        string name,
-        string baseAddress,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var url = baseAddress.TrimEnd('/') + "/health/ready";
-        var started = DateTimeOffset.UtcNow;
-
-        try
-        {
-            using var response = await client.GetAsync(url, cancellationToken);
-            var elapsed = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
-
-            return new ProbeResult(
-                name,
-                baseAddress,
-                response.IsSuccessStatusCode,
-                (int)response.StatusCode,
-                Math.Round(elapsed, 1),
-                null);
-        }
-        catch (Exception ex)
-        {
-            var elapsed = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
-
-            logger.LogWarning("Sonde de sante en echec pour {Service} ({Url}) : {Message}", name, url, ex.Message);
-
-            return new ProbeResult(name, baseAddress, false, null, Math.Round(elapsed, 1), ex.Message);
-        }
-    }
-
-    /// <summary>Resultat d'une sonde de sante.</summary>
-    private sealed record ProbeResult(
-        string Service,
-        string Address,
-        bool Healthy,
-        int? StatusCode,
-        double ElapsedMs,
-        string? Error);
 }

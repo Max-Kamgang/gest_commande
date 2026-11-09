@@ -1,40 +1,11 @@
-# ---- .NET ----
-bin/
-obj/
-*.user
-*.suo
-*.userprefs
-.vs/
-.vscode/
-.idea/
-artifacts/
-TestResults/
-*.trx
-*.coverage
-coverage*.json
-project.lock.json
-project.assets.json
-*.nuget.dgspec.json
+# Build .NET
+**/bin/
+**/obj/
+**/.vs/
 
-# ---- Secrets & configuration locale ----
+# Donnees locales : bases SQLite creees au demarrage
+**/data/
+
+# Secrets de deploiement
 .env
 *.pfx
-*.key
-appsettings.Local.json
-appsettings.*.local.json
-
-# ---- Donnees locales (SQLite) ----
-data/
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
-
-# ---- Logs ----
-logs/
-*.log
-
-# ---- Divers ----
-.DS_Store
-Thumbs.db

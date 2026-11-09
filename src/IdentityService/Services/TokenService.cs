@@ -1,25 +1,25 @@
 using System.Security.Claims;
 using System.Text;
-using GestionCommandes.BuildingBlocks.Security;
 using GestionCommandes.IdentityService.Domain;
+using GestionCommandes.Shared.Security;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
 namespace GestionCommandes.IdentityService.Services;
 
-/// <summary>Emission des jetons JWT signes en HMAC-SHA256.</summary>
-public interface ITokenService
-{
-    /// <summary>Produit un jeton d'acces pour le compte fourni.</summary>
-    (string Token, DateTimeOffset ExpiresAt) CreateAccessToken(AppUser user);
-}
-
-/// <inheritdoc />
-public sealed class TokenService(IOptions<JwtOptions> options) : ITokenService
+/// <summary>
+/// Emission des jetons JWT, signes en HMAC-SHA256 avec la cle partagee.
+///
+/// identity-service est le SEUL service qui signe des jetons ; les autres se
+/// contentent de les valider avec la meme cle (variable <c>JWT__KEY</c>).
+/// </summary>
+public sealed class TokenService(IOptions<JwtOptions> options)
 {
     private readonly JwtOptions _options = options.Value;
 
+    /// <summary>Produit un jeton d'acces pour le compte fourni.</summary>
+    /// <param name="user">Compte authentifie, roles charges.</param>
     public (string Token, DateTimeOffset ExpiresAt) CreateAccessToken(AppUser user)
     {
         var now = DateTimeOffset.UtcNow;
@@ -27,14 +27,13 @@ public sealed class TokenService(IOptions<JwtOptions> options) : ITokenService
 
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.UniqueName, user.UserName),
-            new(JwtRegisteredClaimNames.Email, user.Email),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
+            new("sub", user.Id.ToString()),
+            new("unique_name", user.UserName),
+            new("email", user.Email),
             new(AppClaims.FullName, user.FullName)
         };
 
-        // Un claim « role » par role : c'est ce que lisent les [Authorize(Roles = ...)].
+        // Un claim « role » par role : c'est ce que lisent les politiques d'autorisation.
         claims.AddRange(user.Roles.Select(r => new Claim("role", r.Role)));
 
         if (user.CourierId is { } courierId)
@@ -47,7 +46,6 @@ public sealed class TokenService(IOptions<JwtOptions> options) : ITokenService
             claims.Add(new Claim(AppClaims.CustomerId, customerId.ToString()));
         }
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key));
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = _options.Issuer,
@@ -56,11 +54,12 @@ public sealed class TokenService(IOptions<JwtOptions> options) : ITokenService
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,
             Expires = expiresAt.UtcDateTime,
-            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key)),
+                SecurityAlgorithms.HmacSha256)
         };
 
-        var token = new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }
-            .CreateToken(descriptor);
+        var token = new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(descriptor);
 
         return (token, expiresAt);
     }

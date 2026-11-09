@@ -1,79 +1,146 @@
-using GestionCommandes.BuildingBlocks.Errors;
-using GestionCommandes.BuildingBlocks.Security;
+using GestionCommandes.IdentityService.Data;
+using GestionCommandes.IdentityService.Domain;
 using GestionCommandes.IdentityService.Dtos;
 using GestionCommandes.IdentityService.Services;
+using GestionCommandes.Shared.Errors;
+using GestionCommandes.Shared.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GestionCommandes.IdentityService.Controllers;
 
-/// <summary>Connexion et gestion du compte courant.</summary>
+/// <summary>Connexion et consultation du compte courant.</summary>
 [ApiController]
 [Route("api/auth")]
-[Produces("application/json")]
-public sealed class AuthController(UserService users, ICurrentUser currentUser) : ControllerBase
+public sealed class AuthController(
+    IdentityDbContext context,
+    TokenService tokens,
+    ICurrentUser currentUser,
+    ILogger<AuthController> logger)
+    : ControllerBase
 {
-    /// <summary>Authentifie un utilisateur et renvoie un jeton JWT.</summary>
-    /// <remarks>Point d'entree unique de l'authentification pour toute la plateforme.</remarks>
-    /// <response code="200">Jeton emis.</response>
-    /// <response code="401">Identifiant ou mot de passe incorrect.</response>
-    /// <response code="403">Compte desactive.</response>
+    /// <summary>Authentifie un compte et renvoie un jeton JWT.</summary>
+    /// <param name="request">Identifiant et mot de passe.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    /// <response code="200">Connexion reussie.</response>
+    /// <response code="401">Identifiants invalides ou compte desactive.</response>
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LoginResponse>> Login(
-        [FromBody] LoginRequest request,
+        LoginRequest request,
         CancellationToken cancellationToken)
-        => Ok(await users.LoginAsync(request, cancellationToken));
+    {
+        var user = await context.Users
+            .Include(u => u.Roles)
+            .FirstOrDefaultAsync(u => u.UserName == request.UserName, cancellationToken);
 
-    /// <summary>Renvoie le profil du compte authentifie.</summary>
-    /// <response code="200">Profil du compte courant.</response>
+        // Meme message et meme duree de traitement que l'identifiant existe ou non :
+        // on ne revele pas quels comptes existent.
+        if (user is null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
+        {
+            logger.LogWarning("Echec de connexion pour {UserName}", request.UserName);
+
+            return Unauthorized(new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Connexion refusee",
+                Detail = "Identifiant ou mot de passe incorrect."
+            });
+        }
+
+        if (!user.IsActive)
+        {
+            return Unauthorized(new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Compte desactive",
+                Detail = "Ce compte est desactive. Contactez un administrateur."
+            });
+        }
+
+        user.LastLoginAt = DateTimeOffset.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+
+        var (token, expiresAt) = tokens.CreateAccessToken(user);
+
+        logger.LogInformation("Connexion reussie de {UserName}", user.UserName);
+
+        return Ok(new LoginResponse
+        {
+            AccessToken = token,
+            ExpiresAt = expiresAt,
+            User = UserMapper.ToResponse(user)
+        });
+    }
+
+    /// <summary>Renvoie le profil du compte porte par le jeton.</summary>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType<UserResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<UserResponse>> Me(CancellationToken cancellationToken)
     {
-        var userId = currentUser.UserId
-                     ?? throw new AppException(
-                         System.Net.HttpStatusCode.Unauthorized,
-                         "Jeton invalide",
-                         "Le jeton ne contient pas d'identifiant d'utilisateur exploitable.",
-                         "INVALID_TOKEN");
+        var userId = currentUser.UserId ?? throw new ForbiddenException("Le jeton ne porte pas d'identifiant de compte.");
 
-        return Ok(await users.GetAsync(userId, cancellationToken));
+        var user = await context.Users
+            .Include(u => u.Roles)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
+            ?? throw new NotFoundException("Le compte", userId);
+
+        return Ok(UserMapper.ToResponse(user));
     }
 
-    /// <summary>Change le mot de passe du compte authentifie.</summary>
-    /// <response code="204">Mot de passe modifie.</response>
-    /// <response code="400">Mot de passe actuel incorrect.</response>
+    /// <summary>Change le mot de passe du compte connecte.</summary>
+    /// <param name="request">Ancien et nouveau mot de passe.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
     [HttpPost("change-password")]
     [Authorize]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ChangePassword(
-        [FromBody] ChangePasswordRequest request,
+        ChangePasswordRequest request,
         CancellationToken cancellationToken)
     {
-        var userId = currentUser.UserId
-                     ?? throw new AppException(
-                         System.Net.HttpStatusCode.Unauthorized,
-                         "Jeton invalide",
-                         "Le jeton ne contient pas d'identifiant d'utilisateur exploitable.",
-                         "INVALID_TOKEN");
+        var userId = currentUser.UserId ?? throw new ForbiddenException("Le jeton ne porte pas d'identifiant de compte.");
 
-        await users.ChangePasswordAsync(userId, request, cancellationToken);
+        var user = await context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
+                   ?? throw new NotFoundException("Le compte", userId);
+
+        if (!PasswordHasher.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            throw new BadRequestException("Le mot de passe actuel est incorrect.");
+        }
+
+        user.PasswordHash = PasswordHasher.Hash(request.NewPassword);
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Mot de passe modifie pour {UserName}", user.UserName);
 
         return NoContent();
     }
 
-    /// <summary>Liste les roles reconnus par la plateforme.</summary>
-    /// <response code="200">Roles disponibles.</response>
+    /// <summary>Liste les roles attribuables, pour les ecrans d'administration.</summary>
     [HttpGet("roles")]
     [AllowAnonymous]
-    [ProducesResponseType<IReadOnlyList<string>>(StatusCodes.Status200OK)]
-    public ActionResult<IReadOnlyList<string>> GetRoles() => Ok(RoleCatalog.All);
+    public ActionResult<IEnumerable<string>> GetRoles() => Ok(Roles.Attribuables);
+}
+
+/// <summary>Projection d'un compte vers le format expose par l'API.</summary>
+public static class UserMapper
+{
+    /// <summary>Convertit un compte en reponse API (sans jamais exposer l'empreinte).</summary>
+    /// <param name="user">Compte, roles charges.</param>
+    public static UserResponse ToResponse(AppUser user) => new()
+    {
+        Id = user.Id,
+        UserName = user.UserName,
+        Email = user.Email,
+        FullName = user.FullName,
+        IsActive = user.IsActive,
+        CourierId = user.CourierId,
+        CustomerId = user.CustomerId,
+        CreatedAt = user.CreatedAt,
+        LastLoginAt = user.LastLoginAt,
+        Roles = user.Roles.Select(r => r.Role).OrderBy(r => r).ToList()
+    };
 }

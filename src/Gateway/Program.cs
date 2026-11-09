@@ -1,151 +1,131 @@
-using GestionCommandes.BuildingBlocks.Correlation;
-using GestionCommandes.BuildingBlocks.Errors;
-using GestionCommandes.BuildingBlocks.Hosting;
-using GestionCommandes.BuildingBlocks.Http;
-using GestionCommandes.BuildingBlocks.Observability;
-using GestionCommandes.BuildingBlocks.Security;
 using GestionCommandes.Gateway.Configuration;
+using GestionCommandes.Shared.Hosting;
+using GestionCommandes.Shared.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.SwaggerUI;
+using System.Threading.RateLimiting;
 
 // ---------------------------------------------------------------------------
-// gateway : point d'entree UNIQUE de la plateforme (YARP).
+// gateway : point d'entree UNIQUE de la plateforme.
 //
-// Responsabilites :
-//   - routage vers les six microservices et vers le client web,
-//   - validation du jeton JWT des la frontiere,
-//   - CORS, limitation de debit, propagation du Correlation-ID,
-//   - suppression de l'en-tete de cle interne venant de l'exterieur,
-//   - interface Swagger unique agregeant les six API,
-//   - agregation de l'etat de sante sur /health/services.
+//   - sert l'interface web (fichiers statiques de wwwroot),
+//   - route /api/... vers les quatre microservices (YARP),
+//   - valide le jeton JWT des la frontiere,
+//   - supprime l'en-tete de cle interne venant de l'exterieur,
+//   - limite le debit par client,
+//   - expose une interface Swagger unique et /health/services.
 //
-// Seule la gateway est publiee sur l'hote : ports 80 et 443 en conteneur,
-// 5000 (HTTP) et 5443 (HTTPS) en developpement local.
+// Comme l'interface web est servie ici, tous les appels du navigateur sont de
+// MEME ORIGINE : il n'y a aucun CORS a configurer.
+//
+// Seul conteneur publie sur l'hote : ports 80 et 443.
+// En local (dotnet run) : http://localhost:5000.
 // ---------------------------------------------------------------------------
 
 const string ServiceName = "gateway";
 
 var builder = WebApplication.CreateBuilder(args);
 
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
-    "Point d'entree unique : routage, authentification, CORS, limitation de debit " +
-    "et tracabilite. Agregation des six API dans une seule interface Swagger.");
+    "Point d'entree unique : interface web, routage, authentification et supervision.");
 
-builder.Services.AddOptions<GatewayOptions>()
-    .Bind(builder.Configuration.GetSection(GatewayOptions.SectionName))
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
+var endpoints = builder.Configuration.GetSection(ServiceEndpointsOptions.SectionName)
+                    .Get<ServiceEndpointsOptions>()
+                ?? new ServiceEndpointsOptions();
 
-var gatewayOptions = builder.Configuration.GetSection(GatewayOptions.SectionName).Get<GatewayOptions>()
-                     ?? new GatewayOptions();
-
-var serviceEndpoints = builder.Configuration.GetSection(ServiceEndpointsOptions.SectionName)
-                           .Get<ServiceEndpointsOptions>()
-                       ?? new ServiceEndpointsOptions();
-
-// --- Authentification / autorisation ---------------------------------------
+// --- Authentification ------------------------------------------------------
 builder.Services.AddPlatformAuthentication(builder.Configuration);
 
+// La gateway n'accepte QUE le jeton JWT d'un utilisateur : la cle interne ne
+// doit jamais suffire a franchir la frontiere.
 builder.Services.AddAuthorizationBuilder()
-    // La gateway n'accepte QUE le jeton JWT utilisateur : la cle interne ne doit jamais
-    // suffire a franchir la frontiere (elle est reservee aux appels entre services).
     .SetDefaultPolicy(new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
         .Build());
-    // Les routes marquees « anonymous » (valeur reservee de YARP) ne demandent aucun jeton.
-    // Les services appliquent de toute facon leurs propres regles (defense en profondeur).
 
-// --- CORS -------------------------------------------------------------------
-builder.Services.AddCors(options => options.AddPolicy(
-    GatewayRoutes.CorsPolicy,
-    policy => policy
-        .WithOrigins(gatewayOptions.AllowedOrigins)
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .WithExposedHeaders(CorrelationConstants.HeaderName, "Idempotent-Replay", "Retry-After")
-        .SetPreflightMaxAge(TimeSpan.FromHours(1))));
+// --- Limitation de debit ---------------------------------------------------
+// Une fenetre fixe par adresse IP : protege la connexion contre les tentatives
+// en rafale sans penaliser l'usage normal de l'interface.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-// --- Limitation de debit ----------------------------------------------------
-builder.Services.AddGatewayRateLimiting();
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "inconnu",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Configuration.GetValue("Gateway:RequestsPerMinute", 300),
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
 
-// --- Reverse proxy YARP -----------------------------------------------------
+// --- Reverse proxy ---------------------------------------------------------
 builder.Services
     .AddReverseProxy()
-    .LoadFromMemory(
-        [.. GatewayRoutes.BuildRoutes()],
-        [.. GatewayRoutes.BuildClusters(serviceEndpoints, gatewayOptions.WebClientUrl)])
+    .LoadFromMemory([.. GatewayRoutes.BuildRoutes()], [.. GatewayRoutes.BuildClusters(endpoints)])
     .AddTransforms(GatewayRoutes.ApplyGlobalTransforms);
 
-// --- Client HTTP des sondes de sante ---------------------------------------
 builder.Services.AddHttpClient(HealthAggregation.HttpClientName, client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(5);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("gateway-health-probe/1.0");
-});
+    client.Timeout = TimeSpan.FromSeconds(5));
 
 var app = builder.Build();
 
-// Le socle commun branche Correlation-ID, journalisation, ProblemDetails,
-// authentification et les endpoints /health/live et /health/ready.
-// CORS AVANT l'authentification : les requetes de pre-vol (OPTIONS) n'portent pas de
-// jeton et doivent recevoir leurs en-tetes CORS sans etre rejetees en 401.
-app.UseCors(GatewayRoutes.CorsPolicy);
-
+// Socle commun : erreurs JSON, authentification, /health/live et /health/ready.
+// La gateway n'a pas de base de donnees : aucune sonde « ready » applicative.
 app.UseServiceDefaults(ServiceName, includeSwagger: false);
 
 app.UseRateLimiter();
 
-// Interface Swagger unique : un selecteur liste les six API, servies au travers
-// des routes d'agregation /openapi/<service>/v1.json.
+// Interface web : fichiers statiques de wwwroot, index.html par defaut.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// Interface Swagger unique : un selecteur liste les quatre API, servies via les
+// routes d'agregation /openapi/<service>/v1.json.
 app.UseSwaggerUI(options =>
 {
     options.RoutePrefix = "swagger";
-    options.DocumentTitle = "Gestion des commandes - API (toutes les API)";
+    options.DocumentTitle = "Gestion des commandes - toutes les API";
     options.DocExpansion(DocExpansion.None);
-    options.DisplayRequestDuration();
 
     options.SwaggerEndpoint("/openapi/identity/v1.json", "identity-service");
     options.SwaggerEndpoint("/openapi/catalog/v1.json", "catalog-service");
-    options.SwaggerEndpoint("/openapi/inventory/v1.json", "inventory-service");
     options.SwaggerEndpoint("/openapi/order/v1.json", "order-service");
     options.SwaggerEndpoint("/openapi/delivery/v1.json", "delivery-service");
-    options.SwaggerEndpoint("/openapi/notification/v1.json", "notification-service");
 });
 
 app.MapServicesHealth();
 
 // Petit annuaire lisible, pratique pendant la demonstration.
-app.MapGet("/api", (IOptions<GatewayOptions> options) => Results.Ok(new
+app.MapGet("/api", () => Results.Json(new
     {
         plateforme = "Gestion des commandes, du stock et des livraisons",
-        gateway = "point d'entree unique",
         documentation = "/swagger",
-        sante = new[] { "/health/live", "/health/ready", "/health/services" },
+        sante = new[] { "/health/live", "/health/services" },
         api = new
         {
-            authentification = "/api/auth/login",
-            utilisateurs = "/api/users",
+            connexion = "POST /api/auth/login",
+            comptes = "/api/users",
             categories = "/api/categories",
             produits = "/api/products",
-            entrepots = "/api/warehouses",
             stock = "/api/stock",
-            reservations = "/api/reservations",
             clients = "/api/customers",
             commandes = "/api/orders",
             livreurs = "/api/couriers",
             livraisons = "/api/deliveries",
             notifications = "/api/notifications"
-        },
-        clientWeb = options.Value.WebClientUrl
+        }
     }))
-    .AllowAnonymous()
-    .WithName("Annuaire");
+    .AllowAnonymous();
 
 app.MapReverseProxy();
+
+// Toute autre adresse renvoie l'interface web : la navigation cote client
+// fonctionne meme si l'utilisateur recharge la page sur /commandes.
+app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();

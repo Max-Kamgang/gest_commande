@@ -1,180 +1,261 @@
-using GestionCommandes.BuildingBlocks.Paging;
-using GestionCommandes.BuildingBlocks.Security;
+using GestionCommandes.DeliveryService.Data;
 using GestionCommandes.DeliveryService.Domain;
 using GestionCommandes.DeliveryService.Dtos;
 using GestionCommandes.DeliveryService.Services;
+using GestionCommandes.Shared.Errors;
+using GestionCommandes.Shared.Security;
+using GestionCommandes.Shared.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GestionCommandes.DeliveryService.Controllers;
 
 /// <summary>
-/// Livraisons : creation par order-service, affectation d'un livreur, suivi des
-/// statuts et historique.
+/// Livraisons : bordereaux crees par order-service, puis suivis jusqu'a la remise.
 ///
-/// Un compte de role Livreur ne voit et ne met a jour que les livraisons qui lui
-/// sont affectees (claim <c>courier_id</c> du jeton).
+/// Acces : le back-office voit tout et affecte les livreurs ; un compte de role
+/// Livreur ne voit et ne met a jour que SES livraisons.
 /// </summary>
 [ApiController]
 [Route("api/deliveries")]
-[Produces("application/json")]
-[Authorize(Policy = AuthPolicies.Livraisons)]
-public sealed class DeliveriesController(DeliveryManager deliveries) : ControllerBase
+[Authorize(Policy = Policies.Livraisons)]
+public sealed class DeliveriesController(
+    DeliveryDbContext context,
+    DeliveryWorkflow workflow,
+    ICurrentUser currentUser)
+    : ControllerBase
 {
-    /// <summary>Liste paginee des livraisons, avec filtres.</summary>
-    [HttpGet]
-    [ProducesResponseType<PagedResult<DeliveryResponse>>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<PagedResult<DeliveryResponse>>> Search(
-        [FromQuery] DeliveryQuery query,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.SearchAsync(query, cancellationToken));
-
-    /// <summary>
-    /// Raccourci : les livraisons du livreur connecte.
-    /// Equivalent a <c>GET /api/deliveries</c> pour un compte de role Livreur.
-    /// </summary>
-    [HttpGet("mine")]
-    [ProducesResponseType<PagedResult<DeliveryResponse>>(StatusCodes.Status200OK)]
-    public async Task<ActionResult<PagedResult<DeliveryResponse>>> Mine(
-        [FromQuery] DeliveryQuery query,
-        [FromServices] ICurrentUser currentUser,
-        CancellationToken cancellationToken)
-    {
-        // Pour un gestionnaire, « mine » n'a pas de sens : on renvoie tout.
-        query.CourierId = currentUser.CourierId ?? query.CourierId;
-
-        return Ok(await deliveries.SearchAsync(query, cancellationToken));
-    }
-
-    /// <summary>Recupere une livraison.</summary>
-    [HttpGet("{id:guid}")]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<DeliveryResponse>> Get(Guid id, CancellationToken cancellationToken)
-        => Ok(await deliveries.GetAsync(id, cancellationToken));
-
-    /// <summary>Recupere la livraison d'une commande.</summary>
-    [HttpGet("by-order/{orderNumber}")]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<DeliveryResponse>> GetByOrder(
-        string orderNumber,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.GetByOrderNumberAsync(orderNumber, cancellationToken));
-
-    /// <summary>Historique de suivi d'une livraison.</summary>
-    [HttpGet("{id:guid}/tracking")]
-    [ProducesResponseType<IReadOnlyList<TrackingResponse>>(StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<TrackingResponse>>> GetTracking(
-        Guid id,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.GetTrackingAsync(id, cancellationToken));
-
-    /// <summary>
-    /// Cree un bordereau de livraison. Appele par order-service a l'expedition
-    /// de la commande (appel interne de service a service).
-    /// Idempotent sur le numero de commande.
-    /// </summary>
-    /// <response code="201">Bordereau cree.</response>
-    /// <response code="200">Bordereau deja existant : reponse idempotente.</response>
-    [HttpPost]
-    [Authorize(Policy = AuthPolicies.BackOfficeOuService)]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status201Created)]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<DeliveryResponse>> Create(
-        [FromBody] CreateDeliveryRequest request,
-        CancellationToken cancellationToken)
-    {
-        var (delivery, alreadyExisted) = await deliveries.CreateAsync(request, cancellationToken);
-
-        if (alreadyExisted)
-        {
-            Response.Headers["Idempotent-Replay"] = "true";
-
-            return Ok(delivery);
-        }
-
-        return CreatedAtAction(nameof(Get), new { id = delivery.Id }, delivery);
-    }
-
-    /// <summary>Affecte ou reaffecte un livreur. Reserve au back-office.</summary>
-    /// <response code="409">Etat incompatible, livreur inactif ou a pleine charge.</response>
-    [HttpPost("{id:guid}/assign")]
-    [Authorize(Policy = AuthPolicies.BackOffice)]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<DeliveryResponse>> Assign(
-        Guid id,
-        [FromBody] AssignCourierRequest request,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.AssignAsync(id, request, cancellationToken));
-
-    /// <summary>
-    /// Fait evoluer le statut d'une livraison. Un livreur ne peut agir que sur
-    /// ses propres livraisons.
-    ///
-    /// Le passage a <c>Livree</c> exige <c>receivedBy</c> et declenche la mise a
-    /// jour de la commande dans order-service.
-    /// </summary>
-    /// <response code="200">Nouvel etat de la livraison.</response>
-    /// <response code="400">Donnee obligatoire manquante (destinataire ou motif d'echec).</response>
-    /// <response code="403">La livraison n'est pas affectee a ce livreur.</response>
-    /// <response code="409">Transition invalide ou aucun livreur affecte.</response>
-    [HttpPost("{id:guid}/status")]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<DeliveryResponse>> UpdateStatus(
-        Guid id,
-        [FromBody] UpdateDeliveryStatusRequest request,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.UpdateStatusAsync(id, request, cancellationToken));
-
-    /// <summary>Annule une livraison. Reserve au back-office.</summary>
-    [HttpPost("{id:guid}/cancel")]
-    [Authorize(Policy = AuthPolicies.BackOffice)]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<DeliveryResponse>> Cancel(
-        Guid id,
-        [FromBody] CancelDeliveryRequest request,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.CancelAsync(id, request.Reason, cancellationToken));
-
-    /// <summary>
-    /// Relance la notification d'order-service pour une livraison deja cloturee
-    /// dont la commande n'a pas pu etre mise a jour (order-service momentanement
-    /// indisponible). Reserve au back-office.
-    /// </summary>
-    /// <response code="503">order-service est toujours indisponible.</response>
-    [HttpPost("{id:guid}/notify-order")]
-    [Authorize(Policy = AuthPolicies.BackOffice)]
-    [ProducesResponseType<DeliveryResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<DeliveryResponse>> RetryNotification(
-        Guid id,
-        CancellationToken cancellationToken)
-        => Ok(await deliveries.RetryOrderNotificationAsync(id, cancellationToken));
-
-    /// <summary>Liste les etats de livraison et les transitions autorisees.</summary>
+    /// <summary>Decrit le cycle de vie des livraisons : etats et transitions.</summary>
     [HttpGet("workflow")]
     [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult GetWorkflow() => Ok(new
+    public ActionResult<object> Workflow() => Ok(new
     {
-        states = Enum.GetValues<DeliveryStatus>().Select(s => new
+        etats = Enum.GetValues<DeliveryStatus>().Select(status => new
         {
-            name = s.ToString(),
-            value = (int)s,
-            isFinal = DeliveryStateMachine.IsFinal(s),
-            allowsAssignment = DeliveryStateMachine.AllowsAssignment(s),
-            transitions = DeliveryStateMachine.NextStates(s).Select(n => n.ToString()).ToArray()
+            etat = status.ToString(),
+            transitions = DeliveryStateMachine.NextStates(status).Select(next => next.ToString()),
+            final = DeliveryStateMachine.IsFinal(status),
+            affectationPossible = DeliveryStateMachine.AllowsAssignment(status)
         })
     });
+
+    /// <summary>Liste paginee des livraisons.</summary>
+    /// <param name="query">Filtres et pagination.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpGet]
+    public async Task<ActionResult<PagedResult<DeliveryResponse>>> List(
+        [FromQuery] DeliveryQuery query,
+        CancellationToken cancellationToken)
+    {
+        var deliveries = context.Deliveries
+            .Include(d => d.Courier)
+            .Include(d => d.Lines)
+            .AsQueryable();
+
+        // Un livreur ne voit que ses tournees.
+        if (!currentUser.IsBackOffice)
+        {
+            var courierId = currentUser.CourierId
+                            ?? throw new ForbiddenException(
+                                "Votre compte n'est rattache a aucun livreur.");
+
+            deliveries = deliveries.Where(d => d.CourierId == courierId);
+        }
+        else if (query.CourierId is { } filtered)
+        {
+            deliveries = deliveries.Where(d => d.CourierId == filtered);
+        }
+
+        if (query.Unassigned == true)
+        {
+            deliveries = deliveries.Where(d => d.CourierId == null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+
+            deliveries = deliveries.Where(d =>
+                EF.Functions.Like(d.Reference, $"%{search}%")
+                || EF.Functions.Like(d.OrderNumber, $"%{search}%")
+                || EF.Functions.Like(d.CustomerName, $"%{search}%"));
+        }
+
+        if (query.Status is { } status)
+        {
+            deliveries = deliveries.Where(d => d.Status == status);
+        }
+
+        var page = await deliveries
+            .OrderByDescending(d => d.CreatedAt)
+            .ToPageAsync(query, DeliveryMapper.ToResponse, cancellationToken);
+
+        return Ok(page);
+    }
+
+    /// <summary>Renvoie un bordereau, contenu et suivi compris.</summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<DeliveryResponse>> Get(Guid id, CancellationToken cancellationToken)
+    {
+        var delivery = await workflow.LoadAsync(id, cancellationToken);
+
+        if (!currentUser.IsBackOffice && delivery.CourierId != currentUser.CourierId)
+        {
+            throw new ForbiddenException($"La livraison {delivery.Reference} n'est pas affectee a votre compte.");
+        }
+
+        return Ok(DeliveryMapper.ToResponse(delivery));
+    }
+
+    /// <summary>
+    /// Cree un bordereau. Appele par order-service a l'expedition d'une commande.
+    /// </summary>
+    /// <param name="request">Donnees de la commande expediee.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    /// <response code="201">Bordereau cree.</response>
+    /// <response code="200">Bordereau deja existant pour cette commande.</response>
+    [HttpPost]
+    [Authorize(Policy = Policies.BackOffice)]
+    public async Task<ActionResult<DeliveryResponse>> Create(
+        CreateDeliveryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (delivery, created) = await workflow.CreateAsync(request, cancellationToken);
+
+        var response = DeliveryMapper.ToResponse(delivery);
+
+        return created
+            ? CreatedAtAction(nameof(Get), new { id = delivery.Id }, response)
+            : Ok(response);
+    }
+
+    /// <summary>Affecte un livreur.</summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="request">Livreur a affecter.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpPost("{id:guid}/assign")]
+    [Authorize(Policy = Policies.BackOffice)]
+    public async Task<ActionResult<DeliveryResponse>> Assign(
+        Guid id,
+        AssignCourierRequest request,
+        CancellationToken cancellationToken)
+        => Ok(DeliveryMapper.ToResponse(
+            await workflow.AssignAsync(id, request.CourierId, cancellationToken)));
+
+    /// <summary>Enregistre l'enlevement : la livraison part en tournee.</summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="request">Commentaire du livreur.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpPost("{id:guid}/pickup")]
+    public async Task<ActionResult<DeliveryResponse>> PickUp(
+        Guid id,
+        CommentRequest request,
+        CancellationToken cancellationToken)
+        => Ok(DeliveryMapper.ToResponse(
+            await workflow.PickUpAsync(id, request.Comment, cancellationToken)));
+
+    /// <summary>Enregistre la remise au client et previent order-service.</summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="request">Personne ayant receptionne.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpPost("{id:guid}/complete")]
+    public async Task<ActionResult<DeliveryResponse>> Complete(
+        Guid id,
+        CompleteDeliveryRequest request,
+        CancellationToken cancellationToken)
+        => Ok(DeliveryMapper.ToResponse(
+            await workflow.CompleteAsync(id, request.ReceivedBy, cancellationToken)));
+
+    /// <summary>Enregistre une tentative infructueuse.</summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="request">Motif de l'echec.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpPost("{id:guid}/fail")]
+    public async Task<ActionResult<DeliveryResponse>> Fail(
+        Guid id,
+        FailDeliveryRequest request,
+        CancellationToken cancellationToken)
+        => Ok(DeliveryMapper.ToResponse(
+            await workflow.FailAsync(id, request.Reason, cancellationToken)));
+
+    /// <summary>Annule un bordereau.</summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="request">Motif de l'annulation.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpPost("{id:guid}/cancel")]
+    [Authorize(Policy = Policies.BackOffice)]
+    public async Task<ActionResult<DeliveryResponse>> Cancel(
+        Guid id,
+        CommentRequest request,
+        CancellationToken cancellationToken)
+        => Ok(DeliveryMapper.ToResponse(
+            await workflow.CancelAsync(id, request.Comment, cancellationToken)));
+
+    /// <summary>
+    /// Reessaie de prevenir order-service qu'une livraison est faite. Utile si le
+    /// conteneur order-service etait indisponible au moment de la remise.
+    /// </summary>
+    /// <param name="id">Identifiant du bordereau.</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    [HttpPost("{id:guid}/notify-order")]
+    [Authorize(Policy = Policies.BackOffice)]
+    public async Task<ActionResult<DeliveryResponse>> NotifyOrder(Guid id, CancellationToken cancellationToken)
+        => Ok(DeliveryMapper.ToResponse(await workflow.NotifyOrderAsync(id, cancellationToken)));
+}
+
+/// <summary>Projections des livraisons vers les formats exposes par l'API.</summary>
+public static class DeliveryMapper
+{
+    /// <summary>Convertit un bordereau.</summary>
+    /// <param name="delivery">Bordereau, livreur et lignes charges si disponibles.</param>
+    public static DeliveryResponse ToResponse(Delivery delivery) => new()
+    {
+        Id = delivery.Id,
+        Reference = delivery.Reference,
+        OrderId = delivery.OrderId,
+        OrderNumber = delivery.OrderNumber,
+        CustomerId = delivery.CustomerId,
+        CustomerName = delivery.CustomerName,
+        CustomerPhone = delivery.CustomerPhone,
+        ShippingAddress = delivery.ShippingAddress,
+        ShippingCity = delivery.ShippingCity,
+        Status = delivery.Status,
+        AllowedTransitions = DeliveryStateMachine.NextStates(delivery.Status)
+            .Select(status => status.ToString())
+            .ToList(),
+        CourierId = delivery.CourierId,
+        CourierName = delivery.Courier?.FullName,
+        ReceivedBy = delivery.ReceivedBy,
+        FailureReason = delivery.FailureReason,
+        AttemptCount = delivery.AttemptCount,
+        OrderNotified = delivery.OrderNotified,
+        CreatedAt = delivery.CreatedAt,
+        AssignedAt = delivery.AssignedAt,
+        PickedUpAt = delivery.PickedUpAt,
+        DeliveredAt = delivery.DeliveredAt,
+        Lines = delivery.Lines
+            .OrderBy(line => line.Id)
+            .Select(line => new DeliveryLineResponse
+            {
+                ProductId = line.ProductId,
+                Sku = line.Sku,
+                ProductName = line.ProductName,
+                Quantity = line.Quantity
+            })
+            .ToList(),
+        Tracking = delivery.Tracking
+            .OrderBy(entry => entry.ChangedAt)
+            .Select(entry => new TrackingResponse
+            {
+                FromStatus = entry.FromStatus,
+                ToStatus = entry.ToStatus,
+                Comment = entry.Comment,
+                ChangedBy = entry.ChangedBy,
+                ChangedAt = entry.ChangedAt
+            })
+            .ToList()
+    };
 }

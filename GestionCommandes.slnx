@@ -1,40 +1,10 @@
 <Solution>
-  <Folder Name="/src/" />
-  <Folder Name="/src/BuildingBlocks/">
-    <Project Path="src/BuildingBlocks/GestionCommandes.BuildingBlocks.csproj" />
-  </Folder>
-  <Folder Name="/src/CatalogService/">
-    <Project Path="src/CatalogService/GestionCommandes.CatalogService.csproj" />
-  </Folder>
-  <Folder Name="/src/DeliveryService/">
-    <Project Path="src/DeliveryService/GestionCommandes.DeliveryService.csproj" />
-  </Folder>
-  <Folder Name="/src/Gateway/">
-    <Project Path="src/Gateway/GestionCommandes.Gateway.csproj" />
-  </Folder>
-  <Folder Name="/src/IdentityService/">
+  <Folder Name="/src/">
+    <Project Path="src/Shared/GestionCommandes.Shared.csproj" />
     <Project Path="src/IdentityService/GestionCommandes.IdentityService.csproj" />
-  </Folder>
-  <Folder Name="/src/InventoryService/">
-    <Project Path="src/InventoryService/GestionCommandes.InventoryService.csproj" />
-  </Folder>
-  <Folder Name="/src/NotificationService/">
-    <Project Path="src/NotificationService/GestionCommandes.NotificationService.csproj" />
-  </Folder>
-  <Folder Name="/src/OrderService/">
+    <Project Path="src/CatalogService/GestionCommandes.CatalogService.csproj" />
     <Project Path="src/OrderService/GestionCommandes.OrderService.csproj" />
-  </Folder>
-  <Folder Name="/src/WebClient/">
-    <Project Path="src/WebClient/GestionCommandes.WebClient.csproj" />
-  </Folder>
-  <Folder Name="/tests/" />
-  <Folder Name="/tests/InventoryService.IntegrationTests/">
-    <Project Path="tests/InventoryService.IntegrationTests/GestionCommandes.InventoryService.IntegrationTests.csproj" />
-  </Folder>
-  <Folder Name="/tests/OrderService.IntegrationTests/">
-    <Project Path="tests/OrderService.IntegrationTests/GestionCommandes.OrderService.IntegrationTests.csproj" />
-  </Folder>
-  <Folder Name="/tests/UnitTests/">
-    <Project Path="tests/UnitTests/GestionCommandes.UnitTests.csproj" />
+    <Project Path="src/DeliveryService/GestionCommandes.DeliveryService.csproj" />
+    <Project Path="src/Gateway/GestionCommandes.Gateway.csproj" />
   </Folder>
 </Solution>

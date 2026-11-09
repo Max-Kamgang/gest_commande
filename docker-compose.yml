@@ -1,335 +1,133 @@
 # =============================================================================
-# docker-compose.yml - plateforme Gestion des commandes (conteneurs Windows, nanoserver).
+#  Plateforme « Gestion des commandes » - 5 conteneurs Windows.
 #
-# Lancement sur SRV-MICRO-01 (PowerShell, depuis C:\microservices\app) :
-#   Copy-Item .env.example .env   # puis editer les secrets
-#   docker compose up -d --build
+#  A lancer sur le serveur, depuis C:\microservices\app :
+#      Copy-Item .env.example .env     # puis renseigner les deux secrets
+#      docker compose up -d --build
 #
-# Seule la gateway est publiee (80 et 443). Les services communiquent par nom DNS
-# Docker sur le reseau « microservices » (driver nat). Chaque service a sa base SQLite
-# dans un sous-dossier de MICRO_DATA_ROOT, monte sur C:\app\data dans le conteneur.
-# Les demarrages sont ordonnes par depends_on + condition service_healthy.
+#  Seule la gateway est publiee sur l'hote (port 80). Les quatre services ne sont
+#  joignables que par leur nom DNS sur le reseau Docker « microservices ».
+#  Chaque service a sa propre base SQLite, dans un sous-dossier de MICRO_DATA_ROOT.
 # =============================================================================
 name: gestion-commandes
+
+# --- Reglages communs, repris par alias YAML (*nom) --------------------------
+x-images: &images
+  SDK_IMAGE: ${SDK_IMAGE}
+  RUNTIME_IMAGE: ${RUNTIME_IMAGE}
+
+x-environnement: &environnement
+  ASPNETCORE_ENVIRONMENT: Production
+  # Cle de signature des jetons : la MEME pour tous, sinon les services ne
+  # peuvent pas valider les jetons emis par identity-service.
+  Jwt__Key: ${JWT_KEY}
+  # Cle des appels entre conteneurs. La gateway la supprime des requetes entrantes.
+  Internal__ApiKey: ${INTERNAL_API_KEY}
+  Services__Identity: http://identity-service:8080
+  Services__Catalog: http://catalog-service:8080
+  Services__Order: http://order-service:8080
+  Services__Delivery: http://delivery-service:8080
+
+# Sonde des services : « ready » verifie aussi que la base SQLite repond.
+x-sonde: &sonde
+  test: ["CMD", "curl.exe", "-f", "http://localhost:8080/health/ready"]
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 45s
+
 services:
+  # --- 1. Comptes et jetons --------------------------------------------------
   identity-service:
+    image: gestion-commandes/identity-service:1.0
     build:
       context: .
       dockerfile: src/IdentityService/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/identity-service:1.0
+      args: *images
     restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/ready
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on: {}
+    networks: [microservices]
+    environment: *environnement
+    healthcheck: *sonde
     volumes:
-    - ${MICRO_DATA_ROOT}\identity-service:C:\app\data
-  notification-service:
-    build:
-      context: .
-      dockerfile: src/NotificationService/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/notification-service:1.0
-    restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/ready
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on:
-      identity-service:
-        condition: service_healthy
-    volumes:
-    - ${MICRO_DATA_ROOT}\notification-service:C:\app\data
+      - ${MICRO_DATA_ROOT}\identity-service:C:\app\data
+
+  # --- 2. Catalogue et stock -------------------------------------------------
   catalog-service:
+    image: gestion-commandes/catalog-service:1.0
     build:
       context: .
       dockerfile: src/CatalogService/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/catalog-service:1.0
+      args: *images
     restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/ready
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on:
-      identity-service:
-        condition: service_healthy
+    networks: [microservices]
+    environment: *environnement
+    healthcheck: *sonde
     volumes:
-    - ${MICRO_DATA_ROOT}\catalog-service:C:\app\data
-  inventory-service:
-    build:
-      context: .
-      dockerfile: src/InventoryService/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/inventory-service:1.0
-    restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/ready
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on:
-      notification-service:
-        condition: service_healthy
-    volumes:
-    - ${MICRO_DATA_ROOT}\inventory-service:C:\app\data
-  delivery-service:
-    build:
-      context: .
-      dockerfile: src/DeliveryService/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/delivery-service:1.0
-    restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/ready
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on:
-      notification-service:
-        condition: service_healthy
-    volumes:
-    - ${MICRO_DATA_ROOT}\delivery-service:C:\app\data
+      - ${MICRO_DATA_ROOT}\catalog-service:C:\app\data
+
+  # --- 3. Commandes (pilote catalog-service et delivery-service) -------------
   order-service:
+    image: gestion-commandes/order-service:1.0
     build:
       context: .
       dockerfile: src/OrderService/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/order-service:1.0
+      args: *images
     restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/ready
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on:
-      catalog-service:
-        condition: service_healthy
-      inventory-service:
-        condition: service_healthy
-      delivery-service:
-        condition: service_healthy
-      notification-service:
-        condition: service_healthy
+    networks: [microservices]
+    environment: *environnement
+    healthcheck: *sonde
     volumes:
-    - ${MICRO_DATA_ROOT}\order-service:C:\app\data
-  web-client:
+      - ${MICRO_DATA_ROOT}\order-service:C:\app\data
+
+  # --- 4. Livraisons et notifications ----------------------------------------
+  delivery-service:
+    image: gestion-commandes/delivery-service:1.0
     build:
       context: .
-      dockerfile: src/WebClient/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/web-client:1.0
+      dockerfile: src/DeliveryService/Dockerfile
+      args: *images
     restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-      WebClient__ApiBaseUrl: ''
-    healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/live
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 45s
-    depends_on: {}
+    networks: [microservices]
+    environment: *environnement
+    healthcheck: *sonde
     volumes:
-    - ${MICRO_DATA_ROOT}\web-client:C:\app\data
+      - ${MICRO_DATA_ROOT}\delivery-service:C:\app\data
+
+  # --- 5. Gateway : interface web + routage + authentification ---------------
   gateway:
+    image: gestion-commandes/gateway:1.0
     build:
       context: .
       dockerfile: src/Gateway/Dockerfile
-      args:
-        SDK_IMAGE: ${SDK_IMAGE}
-        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
-    image: gestion-commandes/gateway:1.0
+      args: *images
     restart: always
-    networks:
-    - microservices
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Jwt__Key: ${JWT_KEY}
-      Internal__ApiKey: ${INTERNAL_API_KEY}
-      Serilog__MinimumLevel__Default: ${SERILOG_LEVEL:-Information}
-      Services__Identity: http://identity-service:8080
-      Services__Catalog: http://catalog-service:8080
-      Services__Inventory: http://inventory-service:8080
-      Services__Order: http://order-service:8080
-      Services__Delivery: http://delivery-service:8080
-      Services__Notification: http://notification-service:8080
-      Gateway__WebClientUrl: http://web-client:8080
-      Kestrel__Certificates__Default__Path: C:\certs\gateway.pfx
-      Kestrel__Certificates__Default__Password: ${CERT_PASSWORD}
+    networks: [microservices]
+    environment: *environnement
+    # La gateway n'a pas de base : on verifie seulement que le processus repond.
     healthcheck:
-      test:
-      - CMD
-      - curl.exe
-      - -f
-      - http://localhost:8080/health/live
+      test: ["CMD", "curl.exe", "-f", "http://localhost:8080/health/live"]
       interval: 15s
       timeout: 5s
-      retries: 4
-      start_period: 45s
+      retries: 5
+      start_period: 30s
+    # Les quatre services doivent etre prets avant d'ouvrir le port public :
+    # c'est la seule dependance de demarrage de toute la plateforme.
     depends_on:
       identity-service:
         condition: service_healthy
       catalog-service:
-        condition: service_healthy
-      inventory-service:
         condition: service_healthy
       order-service:
         condition: service_healthy
       delivery-service:
         condition: service_healthy
-      notification-service:
-        condition: service_healthy
-      web-client:
-        condition: service_healthy
     ports:
-    - ${HTTP_PORT:-80}:8080
-    - ${HTTPS_PORT:-443}:8443
+      - ${HTTP_PORT:-80}:8080
     volumes:
-    - ${MICRO_CERTS_DIR}:C:\certs:ro
-    - ${MICRO_DATA_ROOT}\gateway:C:\app\data
+      - ${MICRO_DATA_ROOT}\gateway:C:\app\data
+
 networks:
+  # Driver « nat » : le reseau par defaut des conteneurs Windows. La resolution
+  # par nom de service est assuree par le serveur DNS interne de Docker.
   microservices:
     driver: nat

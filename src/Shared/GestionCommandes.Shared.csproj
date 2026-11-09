@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Socle technique partage par les quatre services metier et la gateway.
+    Ce n'est PAS un microservice : c'est une bibliotheque de classes, compilee
+    dans chaque image. Elle ne contient aucune regle metier, uniquement de la
+    plomberie identique partout (securite, erreurs, sante, pagination).
+  -->
+  <PropertyGroup>
+    <RootNamespace>GestionCommandes.Shared</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+
+</Project>

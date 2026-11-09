@@ -1,67 +1,63 @@
-using GestionCommandes.BuildingBlocks.Domain;
-using GestionCommandes.BuildingBlocks.Hosting;
-using GestionCommandes.BuildingBlocks.Http;
-using GestionCommandes.BuildingBlocks.Security;
 using GestionCommandes.OrderService.Clients;
 using GestionCommandes.OrderService.Data;
 using GestionCommandes.OrderService.Services;
+using GestionCommandes.Shared.Hosting;
+using GestionCommandes.Shared.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 // ---------------------------------------------------------------------------
-// order-service : clients, commandes, machine a etats et ORCHESTRATION de la saga.
-// Appelle catalog-service (prix), inventory-service (stock) et delivery-service.
-// Port interne en conteneur : 8080. Port local (dotnet run) : 5004.
+// order-service : clients, commandes et cycle de vie des commandes.
+// C'est le service qui PILOTE : il appelle catalog-service (stock et prix) et
+// delivery-service (bordereau de livraison).
+// Port dans le conteneur : 8080. En local (dotnet run) : 5003.
 // ---------------------------------------------------------------------------
 
 const string ServiceName = "order-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults(
+var storage = builder.AddServiceDefaults(
     ServiceName,
-    "Commandes clients : saisie, machine a etats (Brouillon, Confirmee, EnPreparation, " +
-    "Expediee, Livree, Annulee) et orchestration de la saga de confirmation avec compensation.");
+    "Commandes : clients, brouillons, confirmation, expedition et annulation.");
 
-builder.Services.AddDbContext<OrderDbContext>((provider, options) =>
-    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
+builder.Services.AddDbContext<OrderDbContext>(options => options.UseSqlite(storage.ConnectionString));
+builder.Services.AddDatabaseCheck<OrderDbContext>();
 
-builder.Services.AddDatabaseReadyCheck<OrderDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);
-builder.Services.AddEventPublishing();
+builder.Services.AddApiControllers();
 
-// Journal d'idempotence (en-tete Idempotency-Key sur la creation et la confirmation).
-builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore<OrderDbContext>>();
+// --- Clients HTTP vers les autres services ---------------------------------
+// La cle interne est ajoutee automatiquement a chaque appel sortant : c'est ce
+// qui authentifie order-service aupres des autres conteneurs.
+builder.Services.AddTransient<InternalKeyHeaderHandler>();
 
-// --- Clients HTTP typés vers les services participants ---------------------
-// Resolution par nom DNS Docker en conteneur (http://catalog-service:8080),
-// par localhost en developpement. Pipeline de resilience : timeout par tentative,
-// rejeu avec backoff exponentiel + jitter, coupe-circuit.
-builder.Services.AddResilientServiceClient<ICatalogClient, CatalogClient>(
-    endpoints => endpoints.Catalog,
-    ServiceName);
+builder.Services.AddHttpClient<CatalogClient>((provider, client) =>
+    {
+        var endpoints = provider.GetRequiredService<IOptions<ServiceEndpointsOptions>>().Value;
 
-builder.Services.AddResilientServiceClient<IInventoryClient, InventoryClient>(
-    endpoints => endpoints.Inventory,
-    ServiceName);
+        client.BaseAddress = new Uri(endpoints.Catalog.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .AddHttpMessageHandler<InternalKeyHeaderHandler>();
 
-builder.Services.AddResilientServiceClient<IDeliveryClient, DeliveryClient>(
-    endpoints => endpoints.Delivery,
-    ServiceName);
+builder.Services.AddHttpClient<DeliveryClient>((provider, client) =>
+    {
+        var endpoints = provider.GetRequiredService<IOptions<ServiceEndpointsOptions>>().Value;
 
-builder.Services.AddScoped<CustomerManager>();
-builder.Services.AddScoped<OrderManager>();
-builder.Services.AddScoped<OrderSaga>();
+        client.BaseAddress = new Uri(endpoints.Delivery.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .AddHttpMessageHandler<InternalKeyHeaderHandler>();
 
-builder.Services.AddApiControllers(ServiceName);
+builder.Services.AddScoped<OrderWorkflow>();
 
 var app = builder.Build();
 
+// Cree la base et les clients de demonstration au premier demarrage.
 await OrderDbInitializer.InitializeAsync(app.Services);
 
 app.UseServiceDefaults(ServiceName);
 app.MapControllers();
 
 app.Run();
-
-/// <summary>Point d’entrée visible pour WebApplicationFactory dans les tests d’intégration.</summary>
-public partial class Program;

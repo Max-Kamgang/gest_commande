@@ -1,33 +1,30 @@
-using GestionCommandes.BuildingBlocks.Hosting;
-using GestionCommandes.BuildingBlocks.Security;
 using GestionCommandes.CatalogService.Data;
-using GestionCommandes.CatalogService.Services;
+using GestionCommandes.Shared.Hosting;
+using GestionCommandes.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 // ---------------------------------------------------------------------------
-// catalog-service : categories, produits, prix et activation.
-// Port interne en conteneur : 8080. Port local (dotnet run) : 5002.
+// catalog-service : categories, produits, prix ET stock.
+// Port dans le conteneur : 8080. En local (dotnet run) : 5002.
 // ---------------------------------------------------------------------------
 
 const string ServiceName = "catalog-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults(
+var storage = builder.AddServiceDefaults(
     ServiceName,
-    "Catalogue produits : categories, produits, prix, activation et tarification pour la saga de commande.");
+    "Catalogue et stock : categories, produits, prix, niveaux, mouvements et reservations.");
 
-builder.Services.AddDbContext<CatalogDbContext>((provider, options) =>
-    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
+builder.Services.AddDbContext<CatalogDbContext>(options => options.UseSqlite(storage.ConnectionString));
+builder.Services.AddDatabaseCheck<CatalogDbContext>();
 
-builder.Services.AddDatabaseReadyCheck<CatalogDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);
-
-builder.Services.AddScoped<CatalogManager>();
-builder.Services.AddApiControllers(ServiceName);
+builder.Services.AddApiControllers();
 
 var app = builder.Build();
 
+// Cree la base et le catalogue de demonstration au premier demarrage.
 await CatalogDbInitializer.InitializeAsync(app.Services);
 
 app.UseServiceDefaults(ServiceName);

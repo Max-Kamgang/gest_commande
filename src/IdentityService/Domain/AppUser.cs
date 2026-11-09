@@ -20,21 +20,21 @@ public class AppUser
     [MaxLength(160)]
     public string FullName { get; set; } = string.Empty;
 
-    /// <summary>Empreinte PBKDF2 du mot de passe.</summary>
+    /// <summary>Empreinte PBKDF2 du mot de passe : jamais le mot de passe lui-meme.</summary>
     [MaxLength(256)]
     public string PasswordHash { get; set; } = string.Empty;
 
-    /// <summary>Compte actif : un compte desactive ne peut plus se connecter.</summary>
+    /// <summary>Un compte desactive ne peut plus se connecter.</summary>
     public bool IsActive { get; set; } = true;
 
     /// <summary>
-    /// Identifiant du livreur associe (delivery-service). Renseigne pour un compte
-    /// de role Livreur : c'est ce qui permet a delivery-service de verifier qu'un
-    /// livreur ne met a jour que SES livraisons.
+    /// Identifiant du livreur associe, pour un compte de role Livreur. C'est ce
+    /// qui permet a delivery-service de verifier qu'un livreur ne touche qu'a
+    /// SES livraisons.
     /// </summary>
     public Guid? CourierId { get; set; }
 
-    /// <summary>Identifiant du client associe (order-service), pour un compte de role Client.</summary>
+    /// <summary>Identifiant du client associe, pour un compte de role Client.</summary>
     public Guid? CustomerId { get; set; }
 
     /// <summary>Date de creation (UTC).</summary>
@@ -43,20 +43,17 @@ public class AppUser
     /// <summary>Date de derniere connexion reussie (UTC).</summary>
     public DateTimeOffset? LastLoginAt { get; set; }
 
-    /// <summary>Nombre d'echecs de connexion consecutifs (indicateur de supervision).</summary>
-    public int FailedLoginCount { get; set; }
-
     /// <summary>Roles attribues au compte.</summary>
     public List<UserRole> Roles { get; set; } = [];
 }
 
-/// <summary>Association compte / role (un compte peut porter plusieurs roles).</summary>
+/// <summary>Association compte / role : un compte peut porter plusieurs roles.</summary>
 public class UserRole
 {
     /// <summary>Compte concerne.</summary>
     public Guid UserId { get; set; }
 
-    /// <summary>Nom du role (voir <c>Roles</c> dans BuildingBlocks).</summary>
+    /// <summary>Nom du role (voir <c>Roles</c> dans le projet Shared).</summary>
     [MaxLength(40)]
     public string Role { get; set; } = string.Empty;
 

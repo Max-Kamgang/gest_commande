@@ -1,25 +1,27 @@
-using GestionCommandes.BuildingBlocks.Data;
-using GestionCommandes.BuildingBlocks.Domain;
 using GestionCommandes.OrderService.Domain;
+using GestionCommandes.Shared.Data;
+using GestionCommandes.Shared.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace GestionCommandes.OrderService.Data;
 
-/// <summary>Base SQLite propre a order-service (<c>order-service.db</c>).</summary>
+/// <summary>Base SQLite de order-service (<c>order-service.db</c>).</summary>
 public class OrderDbContext(DbContextOptions<OrderDbContext> options) : ServiceDbContext(options)
 {
+    /// <summary>Clients.</summary>
     public DbSet<Customer> Customers => Set<Customer>();
 
+    /// <summary>Commandes.</summary>
     public DbSet<Order> Orders => Set<Order>();
 
+    /// <summary>Lignes de commande.</summary>
     public DbSet<OrderLine> OrderLines => Set<OrderLine>();
 
-    public DbSet<OrderStatusHistoryEntry> OrderHistory => Set<OrderStatusHistoryEntry>();
+    /// <summary>Historique des etats.</summary>
+    public DbSet<OrderHistoryEntry> OrderHistory => Set<OrderHistoryEntry>();
 
+    /// <summary>Compteurs de numerotation.</summary>
     public DbSet<OrderSequence> OrderSequences => Set<OrderSequence>();
-
-    /// <summary>Journal d'idempotence des POST sensibles (creation et confirmation).</summary>
-    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,14 +33,12 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : ServiceD
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Code).IsRequired();
             entity.Property(c => c.Name).IsRequired();
-            entity.Property(c => c.Email).IsRequired();
-            entity.Property(c => c.City).IsRequired();
             entity.HasIndex(c => c.Code).IsUnique();
-            entity.HasIndex(c => c.Email);
 
             entity.HasMany(c => c.Orders)
                 .WithOne(o => o.Customer!)
                 .HasForeignKey(o => o.CustomerId)
+                // Restrict : on ne supprime pas des commandes avec un client.
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -47,22 +47,15 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : ServiceD
             entity.ToTable("Orders");
             entity.HasKey(o => o.Id);
             entity.Property(o => o.Number).IsRequired();
-            entity.Property(o => o.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
-            entity.Property(o => o.Currency).IsRequired();
-
-            entity.Property(o => o.SubTotal).HasMoneyConversion();
-            entity.Property(o => o.VatAmount).HasMoneyConversion();
-            entity.Property(o => o.Total).HasMoneyConversion();
-            // Le taux de TVA est un ratio : stocke en 1/10 000 pour rester exact.
-            entity.Property(o => o.VatRate).HasConversion(
-                rate => (long)Math.Round(rate * 10_000m, MidpointRounding.AwayFromZero),
-                stored => stored / 10_000m);
-
-            entity.Property(o => o.RowVersion).IsConcurrencyToken().IsRequired();
-
             entity.HasIndex(o => o.Number).IsUnique();
             entity.HasIndex(o => o.Status);
-            entity.HasIndex(o => new { o.CustomerId, o.CreatedAt });
+            entity.HasIndex(o => o.CustomerId);
+
+            entity.Property(o => o.SubTotal).AsMoney();
+            entity.Property(o => o.VatAmount).AsMoney();
+            entity.Property(o => o.Total).AsMoney();
+
+            entity.Property(o => o.RowVersion).IsConcurrencyToken();
 
             entity.HasMany(o => o.Lines)
                 .WithOne(l => l.Order!)
@@ -79,22 +72,15 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : ServiceD
         {
             entity.ToTable("OrderLines");
             entity.HasKey(l => l.Id);
-            entity.Property(l => l.UnitPrice).HasMoneyConversion();
-            entity.Property(l => l.LineTotal).HasMoneyConversion();
-            entity.HasIndex(l => new { l.OrderId, l.ProductId }).IsUnique();
-
-            entity.ToTable(table => table.HasCheckConstraint(
-                "CK_OrderLines_Quantity_Positif",
-                "Quantity > 0"));
+            entity.Property(l => l.UnitPrice).AsMoney();
+            entity.Property(l => l.LineTotal).AsMoney();
+            entity.HasIndex(l => new { l.OrderId, l.ProductId });
         });
 
-        modelBuilder.Entity<OrderStatusHistoryEntry>(entity =>
+        modelBuilder.Entity<OrderHistoryEntry>(entity =>
         {
             entity.ToTable("OrderHistory");
             entity.HasKey(h => h.Id);
-            entity.Property(h => h.FromStatus).HasConversion<string>().HasMaxLength(20);
-            entity.Property(h => h.ToStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
-            entity.Property(h => h.ChangedBy).IsRequired();
             entity.HasIndex(h => new { h.OrderId, h.ChangedAt });
         });
 
@@ -103,34 +89,52 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : ServiceD
             entity.ToTable("OrderSequences");
             entity.HasKey(s => s.Year);
         });
-
-        modelBuilder.ApplyIdempotencyConfiguration();
     }
 
-    /// <summary>Regenere le jeton de concurrence des commandes modifiees.</summary>
+    /// <summary>Regenere le jeton de concurrence de chaque commande modifiee.</summary>
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        BumpRowVersions();
+        foreach (var entry in ChangeTracker.Entries<Order>().Where(e => e.State == EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid();
+        }
 
         return base.SaveChangesAsync(cancellationToken);
     }
+}
 
-    /// <inheritdoc />
-    public override int SaveChanges()
+/// <summary>Cree la base si besoin et insere les clients de demonstration.</summary>
+public static class OrderDbInitializer
+{
+    /// <summary>Prepare la base du service.</summary>
+    /// <param name="services">Fournisseur de services de l'application.</param>
+    public static async Task InitializeAsync(IServiceProvider services)
     {
-        BumpRowVersions();
+        using var scope = services.CreateScope();
 
-        return base.SaveChanges();
-    }
+        var context = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<OrderDbContext>>();
 
-    private void BumpRowVersions()
-    {
-        foreach (var entry in ChangeTracker.Entries<Order>())
+        await context.Database.EnsureCreatedAsync();
+
+        if (await context.Customers.AnyAsync())
         {
-            if (entry.State is EntityState.Modified)
-            {
-                entry.Entity.RowVersion = Guid.NewGuid();
-            }
+            return;
         }
+
+        context.Customers.AddRange(DemoData.Customers.Select(c => new Customer
+        {
+            Id = c.Id,
+            Code = c.Code,
+            Name = c.Name,
+            Email = c.Email,
+            Phone = c.Phone,
+            City = c.City,
+            Address = c.Address
+        }));
+
+        await context.SaveChangesAsync();
+
+        logger.LogInformation("{Count} clients de demonstration crees.", DemoData.Customers.Length);
     }
 }
