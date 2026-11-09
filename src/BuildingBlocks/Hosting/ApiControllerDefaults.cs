@@ -10,6 +10,11 @@ namespace GestionCommandes.BuildingBlocks.Hosting;
 /// <summary>Configuration commune des controleurs d'API (JSON, validation, negociation).</summary>
 public static class ApiControllerDefaults
 {
+    private static readonly JsonSerializerOptions ProblemJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     /// <summary>
     /// Enregistre les controleurs avec :
     /// <list type="bullet">
@@ -53,9 +58,13 @@ public static class ApiControllerDefaults
                         ? raw as string
                         : context.HttpContext.TraceIdentifier;
 
-                return new BadRequestObjectResult(problem)
+                // Ecrit explicitement le type application/problem+json (RFC 9457) : la
+                // negociation de contenu choisirait sinon le formateur JSON classique.
+                return new ContentResult
                 {
-                    ContentTypes = { "application/problem+json" }
+                    StatusCode = StatusCodes.Status400BadRequest,
+                    ContentType = "application/problem+json; charset=utf-8",
+                    Content = JsonSerializer.Serialize(problem, ProblemJsonOptions)
                 };
             };
         });

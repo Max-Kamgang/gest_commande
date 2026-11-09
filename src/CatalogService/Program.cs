@@ -13,12 +13,12 @@ const string ServiceName = "catalog-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
     "Catalogue produits : categories, produits, prix, activation et tarification pour la saga de commande.");
 
-builder.Services.AddDbContext<CatalogDbContext>(options =>
-    options.UseSqlite(storage.SqliteConnectionString));
+builder.Services.AddDbContext<CatalogDbContext>((provider, options) =>
+    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
 
 builder.Services.AddDatabaseReadyCheck<CatalogDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);

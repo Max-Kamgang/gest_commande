@@ -27,4 +27,14 @@
   <Folder Name="/src/WebClient/">
     <Project Path="src/WebClient/GestionCommandes.WebClient.csproj" />
   </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/InventoryService.IntegrationTests/">
+    <Project Path="tests/InventoryService.IntegrationTests/GestionCommandes.InventoryService.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/OrderService.IntegrationTests/">
+    <Project Path="tests/OrderService.IntegrationTests/GestionCommandes.OrderService.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/UnitTests/">
+    <Project Path="tests/UnitTests/GestionCommandes.UnitTests.csproj" />
+  </Folder>
 </Solution>

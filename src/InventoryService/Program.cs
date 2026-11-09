@@ -14,13 +14,13 @@ const string ServiceName = "inventory-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
     "Gestion du stock : entrepots, niveaux par produit, mouvements, reservations " +
     "et alertes de stock bas. Verrou optimiste contre la survente.");
 
-builder.Services.AddDbContext<InventoryDbContext>(options =>
-    options.UseSqlite(storage.SqliteConnectionString));
+builder.Services.AddDbContext<InventoryDbContext>((provider, options) =>
+    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
 
 builder.Services.AddDatabaseReadyCheck<InventoryDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);

@@ -16,13 +16,13 @@ const string ServiceName = "delivery-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
     "Livraisons : bordereaux crees a l'expedition, affectation des livreurs, " +
     "suivi des statuts et historique. Un livreur ne met a jour que ses livraisons.");
 
-builder.Services.AddDbContext<DeliveryDbContext>(options =>
-    options.UseSqlite(storage.SqliteConnectionString));
+builder.Services.AddDbContext<DeliveryDbContext>((provider, options) =>
+    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
 
 builder.Services.AddDatabaseReadyCheck<DeliveryDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);

@@ -14,13 +14,13 @@ const string ServiceName = "notification-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
     "Notifications : reception des evenements (commande confirmee, stock bas, " +
     "livraison effectuee), historisation et envoi simule d'email et de SMS.");
 
-builder.Services.AddDbContext<NotificationDbContext>(options =>
-    options.UseSqlite(storage.SqliteConnectionString));
+builder.Services.AddDbContext<NotificationDbContext>((provider, options) =>
+    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
 
 builder.Services.AddDatabaseReadyCheck<NotificationDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);

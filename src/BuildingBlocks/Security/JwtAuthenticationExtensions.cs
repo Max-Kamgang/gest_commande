@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
@@ -26,46 +27,21 @@ public static class JwtAuthenticationExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddOptions<InternalKeyOptions>()
-            .Bind(configuration.GetSection(InternalKeyOptions.SectionName));
-
+        // Validation au demarrage (ValidateOnStart) ; les valeurs sont lues a l'execution,
+        // pas a l'enregistrement : la configuration est alors complete (variables
+        // d'environnement, fichiers, surcharges de test).
         services.AddOptions<JwtOptions>()
             .Bind(configuration.GetSection(JwtOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        var options = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-                      ?? throw new InvalidOperationException(
-                          "La section de configuration 'Jwt' est absente. Verifiez appsettings.json ou les variables d'environnement JWT__*.");
+        services.AddOptions<InternalKeyOptions>()
+            .Bind(configuration.GetSection(InternalKeyOptions.SectionName));
 
-        if (string.IsNullOrWhiteSpace(options.Key) || options.Key.Length < 32)
-        {
-            throw new InvalidOperationException(
-                "Jwt:Key doit etre renseignee et faire au moins 32 caracteres (variable d'environnement JWT__KEY).");
-        }
+        services.AddSingleton<IPostConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(bearer =>
-            {
-                bearer.MapInboundClaims = false; // conserve les noms de claims d'origine (sub, role...)
-                bearer.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidIssuer = options.Issuer,
-                    ValidateAudience = true,
-                    ValidAudience = options.Audience,
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.Key)),
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.FromSeconds(options.ClockSkewSeconds),
-                    NameClaimType = JwtRegisteredClaimNames.Sub,
-                    RoleClaimType = "role"
-                };
-
-                // Les reponses 401 / 403 sont produites une seule fois, au niveau
-                // de l'intergiciel d'autorisation : voir
-                // ProblemDetailsAuthorizationResultHandler.
-            })
+            .AddJwtBearer()
             .AddScheme<InternalKeyOptions, InternalKeyAuthenticationHandler>(
                 InternalKeyDefaults.Scheme,
                 schemeOptions => schemeOptions.ApiKey =
@@ -106,6 +82,38 @@ public static class JwtAuthenticationExtensions
         return services;
     }
 
+}
+
+/// <summary>
+/// Configure la validation du JWT a partir de <see cref="JwtOptions"/>, au moment de la
+/// premiere utilisation (et non a l'enregistrement).
+/// </summary>
+internal sealed class ConfigureJwtBearerOptions(IOptions<JwtOptions> jwt) : IPostConfigureOptions<JwtBearerOptions>
+{
+    public void PostConfigure(string? name, JwtBearerOptions bearer)
+    {
+        if (!string.Equals(name, JwtBearerDefaults.AuthenticationScheme, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var options = jwt.Value;
+
+        bearer.MapInboundClaims = false; // conserve les noms de claims d'origine (sub, role...)
+        bearer.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = options.Issuer,
+            ValidateAudience = true,
+            ValidAudience = options.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.Key)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(options.ClockSkewSeconds),
+            NameClaimType = JwtRegisteredClaimNames.Sub,
+            RoleClaimType = "role"
+        };
+    }
 }
 
 /// <summary>Noms des politiques d'autorisation partagees.</summary>

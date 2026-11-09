@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 namespace GestionCommandes.BuildingBlocks.Hosting;
@@ -30,7 +31,9 @@ public static class ServiceDefaults
         string serviceName,
         string description)
     {
-        // 1. Dossiers de donnees / logs (et verification d'ecriture sous ContainerUser).
+        // 1. Dossiers de donnees / logs. Les logs sont configures immediatement (Serilog en a
+        //    besoin au demarrage) ; les chemins de la base sont resolus a la premiere utilisation,
+        //    quand la configuration est complete (variables d'environnement, surcharges de test).
         var paths = StorageLocator.Resolve(builder.Configuration, builder.Environment, serviceName);
 
         // 2. Logs structures Serilog (console + fichier dans le volume).
@@ -38,7 +41,10 @@ public static class ServiceDefaults
 
         var services = builder.Services;
 
-        services.AddSingleton(paths);
+        services.AddSingleton(sp => StorageLocator.Resolve(
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<IHostEnvironment>(),
+            serviceName));
         services.AddSingleton(new ServiceIdentity(serviceName));
         services.AddHttpContextAccessor();
         services.AddSingleton<ICorrelationIdAccessor, HttpCorrelationIdAccessor>();

@@ -14,13 +14,13 @@ const string ServiceName = "identity-service";
 var builder = WebApplication.CreateBuilder(args);
 
 // Socle commun : Serilog, ProblemDetails, Correlation-ID, Swagger, health checks.
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
     "Gestion des comptes, authentification et emission des jetons JWT (roles Admin, Gestionnaire, Livreur, Client).");
 
 // Base SQLite dediee a ce service, dans le volume monte.
-builder.Services.AddDbContext<IdentityDbContext>(options =>
-    options.UseSqlite(storage.SqliteConnectionString));
+builder.Services.AddDbContext<IdentityDbContext>((provider, options) =>
+    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
 
 builder.Services.AddDatabaseReadyCheck<IdentityDbContext>();
 

@@ -17,13 +17,13 @@ const string ServiceName = "order-service";
 
 var builder = WebApplication.CreateBuilder(args);
 
-var storage = builder.AddServiceDefaults(
+builder.AddServiceDefaults(
     ServiceName,
     "Commandes clients : saisie, machine a etats (Brouillon, Confirmee, EnPreparation, " +
     "Expediee, Livree, Annulee) et orchestration de la saga de confirmation avec compensation.");
 
-builder.Services.AddDbContext<OrderDbContext>(options =>
-    options.UseSqlite(storage.SqliteConnectionString));
+builder.Services.AddDbContext<OrderDbContext>((provider, options) =>
+    options.UseSqlite(provider.GetRequiredService<StoragePaths>().SqliteConnectionString));
 
 builder.Services.AddDatabaseReadyCheck<OrderDbContext>();
 builder.Services.AddPlatformAuthentication(builder.Configuration);
