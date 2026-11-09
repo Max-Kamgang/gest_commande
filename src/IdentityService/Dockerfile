@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# escape=`
 # Image Windows du service IdentityService, en deux etapes.
 # A construire depuis la RACINE du depot : le projet Shared et les fichiers
 # Directory.*.props y sont necessaires.
