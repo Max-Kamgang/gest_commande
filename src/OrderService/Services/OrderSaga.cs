@@ -514,6 +514,17 @@ public sealed class OrderSaga(
                 "Compensation pour {Reference} : aucune reservation a liberer",
                 reference);
         }
+        catch (ServiceUnavailableException ex)
+        {
+            // inventory-service est toujours indisponible : si la reservation n'avait jamais
+            // ete posee, il n'y a rien a liberer ; si elle l'avait ete (delai depasse apres
+            // ecriture), une reservation orpheline subsiste et sera liberee a la reprise.
+            logger.LogWarning(
+                "Compensation pour {Reference} differee : inventory-service indisponible ({Message}). " +
+                "Une reservation orpheline eventuelle doit etre liberee a la reprise du service.",
+                reference,
+                ex.Message);
+        }
         catch (Exception ex)
         {
             // La compensation a echoue : on le journalise clairement pour que
