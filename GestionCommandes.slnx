@@ -9,4 +9,7 @@
   <Folder Name="/src/IdentityService/">
     <Project Path="src/IdentityService/GestionCommandes.IdentityService.csproj" />
   </Folder>
+  <Folder Name="/src/InventoryService/">
+    <Project Path="src/InventoryService/GestionCommandes.InventoryService.csproj" />
+  </Folder>
 </Solution>
